@@ -66,7 +66,7 @@
     max-width: 640px;
   }
   .panel {
-    width: 320px;
+    width: 340px;
     background: #0c0c1e;
     border: 1px solid #33336a;
     border-radius: 6px;
@@ -84,6 +84,7 @@
     color: #ffd400;
     font-size: 13px;
     margin-bottom: 4px;
+    margin-top: 10px;
   }
   .panel pre {
     background: #050510;
@@ -91,11 +92,11 @@
     border-radius: 4px;
     padding: 8px;
     font-size: 11px;
-    max-height: 130px;
+    max-height: 100px;
     overflow: auto;
     white-space: pre-wrap;
     word-break: break-word;
-    margin: 0 0 10px 0;
+    margin: 0;
     color: #a0ffb0;
   }
   #accionBox { color: #ff9d5c; font-size: 14px; font-weight: bold; }
@@ -127,61 +128,64 @@
     <div class="controls">
       <label>Modo:
         <select id="modoSelect">
-          <option value="manual">Manual (flechas)</option>
-          <option value="reflejo">Agente de Reflejo</option>
-          <option value="modelo">Agente Basado en Modelo</option>
+          <option value="manual">Manual (Flechas) - Blinky y Pinky persiguen</option>
+          <option value="reflejo">Agente de Reflejo (Evaluar a Blinky)</option>
+          <option value="modelo">Agente Basado en Modelo (Evaluar a Pinky)</option>
         </select>
       </label>
       <button id="btnStart">Iniciar / Reiniciar</button>
+      <button id="btnFastForward" disabled title="Acelera 1 partida de IA hasta el final">Fin Rápido</button>
       <button id="btnBatch">Ejecutar 20 partidas</button>
     </div>
-    <div class="hint">Flechas del teclado = mover en modo Manual. Barra espaciadora = iniciar / reiniciar partida.</div>
+    <div class="hint">Flechas del teclado = mover a Pac-Man en modo Manual. Barra espaciadora = iniciar / reiniciar partida.</div>
   </div>
 
   <div class="panel">
-    <h2>Panel del Agente</h2>
-    <div class="estadoLinea">Puntaje: <b id="scoreDisplay">0</b></div>
+    <h2>Panel del Agente Fantasma</h2>
+    <div class="estadoLinea">Puntaje Pac-Man: <b id="scoreDisplay">0</b></div>
     <div class="estadoLinea">Estado del juego: <b id="stateDisplay">menu</b></div>
 
-    <h3>Percepcion recibida</h3>
+    <h3>Percepción recibida</h3>
     <pre id="percepcionBox">-</pre>
 
-    <h3>Estado interno (solo agente basado en modelo)</h3>
+    <h3>Estado interno (solo Pinky)</h3>
     <pre id="estadoBox">-</pre>
 
-    <h3>Accion elegida</h3>
+    <h3>Acción elegida</h3>
     <pre id="accionBox">-</pre>
+    
+    <h3>Traza de decisiones (últimas 5)</h3>
+    <pre id="trazaBox">-</pre>
 
     <h2>Resultados (20 partidas)</h2>
-    <div id="resultsContainer">Sin datos aun. Pulsa "Ejecutar 20 partidas".</div>
+    <div id="resultsContainer">Sin datos aún. Pulsa "Ejecutar 20 partidas".</div>
   </div>
 </div>
 
 <script>
 /* ======================================================================
-   PAC-MAN SIMPLIFICADO CON AGENTES INTELIGENTES
+   PAC-MAN SIMPLIFICADO CON AGENTES INTELIGENTES (FANTASMAS)
    Estructura del archivo:
      1) CONSTANTES Y CONFIGURACION
-     2) GENERACION DEL LABERINTO (logica del juego)
-     3) UTILIDADES DE MOVIMIENTO / PERCEPCION (logica del juego)
-     4) AGENTE DE REFLEJO SIMPLE            (logica del agente 1)
-     5) AGENTE BASADO EN MODELO             (logica del agente 2)
-     6) IA DE LOS FANTASMAS (entorno, no es uno de los agentes pedidos)
-     7) BUCLE PRINCIPAL DEL JUEGO Y RENDERIZADO (logica del juego)
+     2) GENERACION DEL LABERINTO
+     3) UTILIDADES DE MOVIMIENTO / PERCEPCION
+     4) AGENTE DE REFLEJO SIMPLE (Blinky)
+     5) AGENTE BASADO EN MODELO (Pinky)
+     6) BOT PAC-MAN (Entorno para simulaciones)
+     7) BUCLE PRINCIPAL DEL JUEGO Y RENDERIZADO
      8) MODO EXPERIMENTACION: 20 PARTIDAS POR AGENTE
      9) INTERFAZ / EVENTOS / INICIALIZACION
    ====================================================================== */
-
 
 /* ============================ 1) CONSTANTES ============================ */
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 
 const TILE = 20;                 // tamano de celda en pixeles
-const COLS = 32;                 // 32 * 20 = 640
-const ROWS = 24;                 // 24 * 20 = 480
-const TUNNEL_ROW = 11;           // fila con tunel de un extremo a otro
-const INTERVALO_MOV = 150;       // ms entre cada movimiento (velocidad del juego)
+const COLS = 32;                 
+const ROWS = 24;                 
+const TUNNEL_ROW = 11;           
+const INTERVALO_MOV = 150;       // velocidad del juego
 
 const DIRS = {
   arriba:    { dx: 0,  dy: -1 },
@@ -193,21 +197,16 @@ const DIRS_LISTA = ['arriba', 'abajo', 'izquierda', 'derecha'];
 const OPUESTA = { arriba: 'abajo', abajo: 'arriba', izquierda: 'derecha', derecha: 'izquierda' };
 
 const PAC_SPAWN = { x: 15, y: 17 };
-const GHOST_SPAWNS = [ { x: 15, y: 11 }, { x: 16, y: 11 } ];
-const COLORES_FANTASMAS = ['#ff3355', '#33e0ff'];
-
+const COLORES_FANTASMAS = { Blinky: '#ff3355', Pinky: '#ffb8ff' };
 
 /* ==================== 2) GENERACION DEL LABERINTO ==================== */
-// La matriz "maze" usa 1 = pared, 0 = piso transitable.
 function crearLaberinto() {
   const m = [];
   for (let y = 0; y < ROWS; y++) m.push(new Array(COLS).fill(0));
 
-  // bordes exteriores
   for (let x = 0; x < COLS; x++) { m[0][x] = 1; m[ROWS - 1][x] = 1; }
   for (let y = 0; y < ROWS; y++) { m[y][0] = 1; m[y][COLS - 1] = 1; }
 
-  // tunel horizontal: abre los extremos de la fila TUNNEL_ROW
   m[TUNNEL_ROW][0] = 0;
   m[TUNNEL_ROW][COLS - 1] = 0;
 
@@ -219,7 +218,6 @@ function crearLaberinto() {
     }
   }
 
-  // bloques interiores (mitad izquierda); se replican en espejo a la derecha
   const bloques = [
     [2, 2, 4, 4], [2, 7, 4, 7],
     [6, 2, 6, 5], [6, 9, 10, 9],
@@ -230,19 +228,18 @@ function crearLaberinto() {
   ];
   for (const [r1, c1, r2, c2] of bloques) {
     aplicarBloque(r1, c1, r2, c2);
-    aplicarBloque(r1, COLS - 1 - c2, r2, COLS - 1 - c1); // espejo horizontal
+    aplicarBloque(r1, COLS - 1 - c2, r2, COLS - 1 - c1); 
   }
 
-  // casa de fantasmas central con puerta
+  // casa de fantasmas
   for (let c = 13; c <= 18; c++) { m[9][c] = 1; m[13][c] = 1; }
   for (let r = 9; r <= 13; r++) { m[r][13] = 1; m[r][18] = 1; }
-  m[9][15] = 0; m[9][16] = 0; // puerta
-  for (let r = 10; r <= 12; r++) for (let c = 14; c <= 17; c++) m[r][c] = 0; // interior libre
+  m[9][15] = 0; m[9][16] = 0; 
+  for (let r = 10; r <= 12; r++) for (let c = 14; c <= 17; c++) m[r][c] = 0; 
 
   return m;
 }
 
-// dots[y][x] = true si hay una pelotita para comer en esa celda
 function crearDots(m) {
   const d = [];
   for (let y = 0; y < ROWS; y++) {
@@ -251,7 +248,7 @@ function crearDots(m) {
     d.push(fila);
   }
   d[PAC_SPAWN.y][PAC_SPAWN.x] = false;
-  for (const g of GHOST_SPAWNS) d[g.y][g.x] = false;
+  // Limpiar dots en spawn de fantasmas (casa)
   for (let r = 10; r <= 12; r++) for (let c = 14; c <= 17; c++) d[r][c] = false;
   return d;
 }
@@ -260,8 +257,6 @@ function clonarDots(base) { return base.map(fila => fila.slice()); }
 
 
 /* ============== 3) UTILIDADES DE MOVIMIENTO / PERCEPCION ============== */
-// Devuelve la celda resultante de moverse desde (x,y) en direccion "dir",
-// respetando paredes y el tunel horizontal. Devuelve null si no es transitable.
 function siguienteCelda(x, y, dir) {
   const d = DIRS[dir];
   let nx = x + d.dx;
@@ -279,239 +274,292 @@ function esValida(entidad, dir) {
   return !!dir && siguienteCelda(entidad.x, entidad.y, dir) !== null;
 }
 
-// Clasifica el contenido de una celda para la percepcion de los agentes
-function estadoCelda(x, y) {
-  if (ghosts.some(g => g.x === x && g.y === y)) return 'fantasma';
-  if (dots[y][x]) return 'pellet';
-  return 'libre';
-}
-
-// Construye el objeto de percepcion del instante actual (usado por ambos agentes)
-function construirPercepcion() {
+function construirPercepcionGhost(ghost) {
   const vecinos = {};
   for (const dir of DIRS_LISTA) {
-    const sig = siguienteCelda(pac.x, pac.y, dir);
-    vecinos[dir] = sig ? estadoCelda(sig.x, sig.y) : 'pared';
+    const sig = siguienteCelda(ghost.x, ghost.y, dir);
+    if (!sig) {
+      vecinos[dir] = 'pared';
+    } else {
+      // PREVENCION DE SUPERPOSICION: Tratamos a los demas fantasmas como paredes.
+      const hayOtroFantasma = ghosts.some(g => g !== ghost && g.x === sig.x && g.y === sig.y);
+      vecinos[dir] = hayOtroFantasma ? 'pared' : 'libre';
+    }
   }
   return {
-    pos: { x: pac.x, y: pac.y },
-    direccionActual: pac.dir,
+    pos: { x: ghost.x, y: ghost.y },
+    direccionActual: ghost.dir,
     vecinos: vecinos,
-    fantasmas: ghosts.map(g => ({ x: g.x, y: g.y })),
-    dotsRestantes: dotsRestantes,
-    tick: ticksTranscurridos
+    pacman: { x: pac.x, y: pac.y }
   };
 }
 
-function estaEnDireccion(pos, dir, entidad) {
-  const sig = siguienteCelda(pos.x, pos.y, dir);
-  return !!sig && sig.x === entidad.x && sig.y === entidad.y;
-}
 
-
-/* ==================== 4) AGENTE DE REFLEJO SIMPLE ====================
-   Decide UNICAMENTE con la percepcion del instante actual (sin memoria).
-   Reglas condicion-accion evaluadas en orden de prioridad.               */
+/* ==================== 4) AGENTE DE REFLEJO SIMPLE (BLINKY) ====================
+   Agente de reflejo simple. Decide UNICAMENTE con la percepcion del instante actual, 
+   sin memoria de estados anteriores. Implementado como un conjunto de reglas condicion-accion. */
 function agenteReflejo(percepcion) {
-  const { vecinos, fantasmas, pos, direccionActual } = percepcion;
+  const { vecinos, pos, pacman, direccionActual } = percepcion;
 
-  // REGLA 1 (huir): si un fantasma esta en una casilla adyacente,
-  // moverse en la direccion opuesta si esta libre de pared.
-  for (const d of DIRS_LISTA) {
-    const hayFantasmaAdyacente = fantasmas.some(f => estaEnDireccion(pos, d, f));
-    if (hayFantasmaAdyacente && vecinos[OPUESTA[d]] !== 'pared') {
-      return OPUESTA[d];
+  // REGLA 1 (Movimientos validos): Obtener todas las direcciones sin pared.
+  let opciones = DIRS_LISTA.filter(d => vecinos[d] !== 'pared');
+  
+  // REGLA 2 (No reversa): Los fantasmas evitan volver por donde vinieron a menos que esten acorralados.
+  const sinReversa = opciones.filter(d => d !== OPUESTA[direccionActual]);
+  if (sinReversa.length > 0) opciones = sinReversa;
+
+  // REGLA 3 (Acorralado): Si no hay opciones, quedarse en la direccion actual
+  if (opciones.length === 0) return direccionActual;
+
+  // =========================================================================================
+  // DIFERENCIA ARQUITECTONICA (1/2): AGENTE DE REFLEJO
+  // Blinky calcula la distancia Manhattan hacia la posicion ACTUAL de Pac-Man, evaluando el
+  // entorno solo con la informacion presente, sin almacenar el pasado ni predecir el futuro.
+  // =========================================================================================
+  
+  // REGLA 4 (Persecucion inmediata): Elegir la direccion que minimice la distancia a Pac-Man.
+  let menoresDirs = [];
+  let menorDistancia = Infinity;
+
+  for (const d of opciones) {
+    const dCoord = DIRS[d];
+    const nx = pos.x + dCoord.dx;
+    const ny = pos.y + dCoord.dy;
+    
+    // Distancia Manhattan a la posicion *actual* de Pac-Man
+    const dist = Math.abs(nx - pacman.x) + Math.abs(ny - pacman.y);
+    
+    if (dist < menorDistancia) {
+      menorDistancia = dist;
+      menoresDirs = [d];
+    } else if (dist === menorDistancia) {
+      menoresDirs.push(d);
     }
   }
 
-  // REGLA 2 (comer): si hay un pellet en una casilla adyacente, ir hacia el.
-  for (const d of DIRS_LISTA) {
-    if (vecinos[d] === 'pellet') return d;
-  }
-
-  // REGLA 3 (evitar choque): si la direccion actual choca con una pared,
-  // elegir aleatoriamente otra direccion libre.
-  if (direccionActual && vecinos[direccionActual] === 'pared') {
-    const libres = DIRS_LISTA.filter(d => vecinos[d] !== 'pared');
-    if (libres.length > 0) return libres[Math.floor(Math.random() * libres.length)];
-  }
-
-  // REGLA 4 (persistencia): si la direccion actual sigue siendo valida, mantenerla.
-  if (direccionActual && vecinos[direccionActual] !== 'pared') return direccionActual;
-
-  // REGLA 5 (rescate): si nada de lo anterior aplico, tomar cualquier direccion libre.
-  const libres = DIRS_LISTA.filter(d => vecinos[d] !== 'pared');
-  return libres.length ? libres[Math.floor(Math.random() * libres.length)] : direccionActual;
+  // PREVENCION DE BUCLE DETERMINISTA: Elegir al azar entre caminos con igual distancia.
+  return menoresDirs[Math.floor(Math.random() * menoresDirs.length)];
 }
 
 
-/* ================== 5) AGENTE BASADO EN MODELO ==================
-   Mantiene un estado interno con:
-     - historialFantasmas: posiciones previas de cada fantasma, usadas
-       para estimar su velocidad y sentido de movimiento.
-     - celdasVisitadas: casillas ya recorridas por pac-man.
-     - direccionObjetivoPrevia: ultima direccion elegida.
-   Con esto PREDICE la posicion futura de los fantasmas y busca (BFS)
-   el camino mas corto y seguro hacia el pellet mas cercano.            */
-
+/* ================== 5) AGENTE BASADO EN MODELO (PINKY) ==================
+   Agente basado en modelo. Mantiene un estado interno que registra la direccion 
+   previa del objetivo (Pac-Man) y lo emplea para predecir su posicion futura. */
 function crearEstadoModeloInicial() {
   return {
-    historialFantasmas: null,
-    celdasVisitadas: new Set(),
-    direccionObjetivoPrevia: null
+    posicionPreviaPacman: null
   };
-}
-
-// Busqueda en anchura (BFS) desde "start" hasta el pellet mas cercano,
-// evitando las celdas marcadas como peligrosas.
-function bfsHaciaPellet(start, peligro) {
-  const inicioKey = start.x + ',' + start.y;
-  const visitadosBFS = new Set([inicioKey]);
-  const cola = [{ x: start.x, y: start.y, camino: [] }];
-
-  while (cola.length) {
-    const actual = cola.shift();
-    const key = actual.x + ',' + actual.y;
-    if (dots[actual.y][actual.x] && key !== inicioKey) return actual.camino;
-
-    for (const dir of DIRS_LISTA) {
-      const sig = siguienteCelda(actual.x, actual.y, dir);
-      if (!sig) continue;
-      const k = sig.x + ',' + sig.y;
-      if (visitadosBFS.has(k) || peligro.has(k)) continue;
-      visitadosBFS.add(k);
-      cola.push({ x: sig.x, y: sig.y, camino: [...actual.camino, dir] });
-    }
-  }
-  return null;
-}
-
-// Si no hay pellets alcanzables de forma segura, elige una direccion de
-// exploracion priorizando celdas seguras y no visitadas recientemente.
-function elegirDireccionExploracion(pos, peligro, visitadas, direccionPrevia) {
-  const candidatos = DIRS_LISTA
-    .map(d => ({ d, sig: siguienteCelda(pos.x, pos.y, d) }))
-    .filter(o => o.sig);
-
-  const seguros = candidatos.filter(o => !peligro.has(o.sig.x + ',' + o.sig.y));
-  const pool = seguros.length ? seguros : candidatos;
-
-  const noVisitados = pool.filter(o => !visitadas.has(o.sig.x + ',' + o.sig.y));
-  const poolFinal = noVisitados.length ? noVisitados : pool;
-
-  if (poolFinal.length === 0) return direccionPrevia;
-  return poolFinal[Math.floor(Math.random() * poolFinal.length)].d;
 }
 
 function agenteModelo(percepcion, estadoInterno) {
-  const { pos, fantasmas } = percepcion;
+  const { vecinos, pos, pacman, direccionActual } = percepcion;
 
-  const nuevoEstado = {
-    historialFantasmas: fantasmas.map(f => ({ x: f.x, y: f.y })),
-    celdasVisitadas: new Set(estadoInterno.celdasVisitadas),
-    direccionObjetivoPrevia: estadoInterno.direccionObjetivoPrevia
+  // 1. Deducir la direccion/sentido de Pac-Man comparando con el estado interno
+  let pacDirX = 0, pacDirY = 0;
+  if (estadoInterno.posicionPreviaPacman) {
+    const dx = pacman.x - estadoInterno.posicionPreviaPacman.x;
+    const dy = pacman.y - estadoInterno.posicionPreviaPacman.y;
+    if (dx !== 0) pacDirX = dx > 0 ? 1 : -1;
+    if (dy !== 0) pacDirY = dy > 0 ? 1 : -1;
+  }
+  
+  // =========================================================================================
+  // DIFERENCIA ARQUITECTONICA (2/2): AGENTE BASADO EN MODELO
+  // Pinky usa su estado interno (memoria de la pos previa) para inferir la velocidad/direccion
+  // de Pac-Man y PREDICE su posición futura (4 casillas por delante). Su decision de movimiento 
+  // busca minimizar la distancia hacia este *objetivo predicho* en lugar del objetivo actual.
+  // =========================================================================================
+  const objetivoPredicho = {
+    x: pacman.x + (pacDirX * 4),
+    y: pacman.y + (pacDirY * 4)
   };
-  nuevoEstado.celdasVisitadas.add(pos.x + ',' + pos.y);
-  if (nuevoEstado.celdasVisitadas.size > 300) nuevoEstado.celdasVisitadas.clear();
 
-  // 1) Estimar velocidad y sentido de cada fantasma comparando con el
-  //    historial guardado en el estado interno, y predecir su proxima celda.
-  const prediccion = fantasmas.map((f, i) => {
-    const previo = estadoInterno.historialFantasmas ? estadoInterno.historialFantasmas[i] : null;
-    const vel = previo ? { dx: f.x - previo.x, dy: f.y - previo.y } : { dx: 0, dy: 0 };
-    return { actual: { x: f.x, y: f.y }, futura: { x: f.x + vel.dx, y: f.y + vel.dy } };
-  });
+  // NUEVO: Instinto de captura. Si Pinky está muy cerca (<= 4 casillas), 
+  // abandona la predicción a futuro y ataca directamente a la posición actual.
+  // Esto evita bucles infinitos corriendo en paralelo.
+  const distReal = Math.abs(pos.x - pacman.x) + Math.abs(pos.y - pacman.y);
+  const objetivoFinal = (distReal <= 4) ? pacman : objetivoPredicho;
 
-  // 2) Construir el conjunto de celdas peligrosas (posicion actual + futura predicha)
-  const peligro = new Set();
-  for (const p of prediccion) {
-    peligro.add(p.actual.x + ',' + p.actual.y);
-    peligro.add(p.futura.x + ',' + p.futura.y);
+  // 2. Actualizar el estado interno para el siguiente ciclo
+  const nuevoEstado = {
+    posicionPreviaPacman: { x: pacman.x, y: pacman.y }
+  };
+
+  // 3. Obtener opciones validas de movimiento (sin reversa)
+  let opciones = DIRS_LISTA.filter(d => vecinos[d] !== 'pared');
+  const sinReversa = opciones.filter(d => d !== OPUESTA[direccionActual]);
+  if (sinReversa.length > 0) opciones = sinReversa;
+  
+  if (opciones.length === 0) return { accion: direccionActual, nuevoEstado };
+
+  // 4. Elegir direccion que acerque al objetivo PREDICHO
+  let menoresDirs = [];
+  let menorDistancia = Infinity;
+
+  for (const d of opciones) {
+    const dCoord = DIRS[d];
+    const nx = pos.x + dCoord.dx;
+    const ny = pos.y + dCoord.dy;
+    
+    // Distancia Manhattan al objetivo (predicho o real si está muy cerca)
+    const dist = Math.abs(nx - objetivoFinal.x) + Math.abs(ny - objetivoFinal.y);
+    
+    if (dist < menorDistancia) {
+      menorDistancia = dist;
+      menoresDirs = [d];
+    } else if (dist === menorDistancia) {
+      menoresDirs.push(d);
+    }
   }
 
-  // 3) Buscar el camino mas corto y seguro hacia el pellet mas cercano
-  let camino = bfsHaciaPellet(pos, peligro);
-  if (!camino) camino = bfsHaciaPellet(pos, new Set()); // si no hay ruta segura, reintentar sin evitar peligro
-
-  let accion;
-  if (camino && camino.length > 0) {
-    accion = camino[0];
-  } else {
-    accion = elegirDireccionExploracion(pos, peligro, nuevoEstado.celdasVisitadas, estadoInterno.direccionObjetivoPrevia);
-  }
-
-  nuevoEstado.direccionObjetivoPrevia = accion;
-  return { accion, nuevoEstado };
+  // PREVENCION DE BUCLE DETERMINISTA: Elegir al azar entre caminos con igual distancia.
+  const mejorDir = menoresDirs[Math.floor(Math.random() * menoresDirs.length)];
+  return { accion: mejorDir, nuevoEstado };
 }
 
 
-/* ============ 6) IA DE LOS FANTASMAS (entorno del juego) ============
-   No es uno de los agentes solicitados: es el comportamiento del
-   entorno frente al cual los agentes de pac-man deben reaccionar.      */
-function moverFantasmas() {
-  for (const g of ghosts) {
-    g.prevX = g.x; g.prevY = g.y;
-
-    let opciones = DIRS_LISTA.filter(d => siguienteCelda(g.x, g.y, d) !== null);
-    const sinReversa = opciones.filter(d => d !== OPUESTA[g.dir]);
-    if (sinReversa.length > 0) opciones = sinReversa;
-
-    let elegida;
-    if (Math.random() < 0.65) {
-      let mejor = null, mejorDist = Infinity;
-      for (const d of opciones) {
-        const sig = siguienteCelda(g.x, g.y, d);
-        const dist = Math.abs(sig.x - pac.x) + Math.abs(sig.y - pac.y);
-        if (dist < mejorDist) { mejorDist = dist; mejor = d; }
-      }
-      elegida = mejor;
-    } else {
-      elegida = opciones[Math.floor(Math.random() * opciones.length)];
-    }
-
-    const sig = siguienteCelda(g.x, g.y, elegida);
-    g.x = sig.x; g.y = sig.y; g.dir = elegida;
+/* ============ 6) BOT PAC-MAN (Entorno para simulaciones) ============
+   Cuando el jugador no controla a Pac-Man, este bot basico
+   asume el control para que los fantasmas tengan alguien a quien perseguir. */
+function botPacman() {
+  const vecinos = {};
+  for (const dir of DIRS_LISTA) {
+    const sig = siguienteCelda(pac.x, pac.y, dir);
+    if (!sig) vecinos[dir] = 'pared';
+    else if (ghosts.some(g => g.x === sig.x && g.y === sig.y)) vecinos[dir] = 'fantasma';
+    else if (dots[sig.y][sig.x]) vecinos[dir] = 'pellet';
+    else vecinos[dir] = 'libre';
   }
+
+  const pos = {x: pac.x, y: pac.y};
+  
+  // Regla A: Huir del fantasma adyacente (empate aleatorio)
+  let posiblesHuidas = [];
+  for (const d of DIRS_LISTA) {
+    const hayFantasma = ghosts.some(f => {
+       const s = siguienteCelda(pos.x, pos.y, d);
+       return s && s.x === f.x && s.y === f.y;
+    });
+    if (hayFantasma && vecinos[OPUESTA[d]] !== 'pared') {
+      posiblesHuidas.push(OPUESTA[d]);
+    }
+  }
+  if (posiblesHuidas.length > 0) {
+    return posiblesHuidas[Math.floor(Math.random() * posiblesHuidas.length)];
+  }
+  
+  // Regla B: Comer pellet adyacente (elegir aleatorio si hay varios)
+  let pellets = [];
+  for (const d of DIRS_LISTA) {
+    if (vecinos[d] === 'pellet') pellets.push(d);
+  }
+  if (pellets.length > 0) return pellets[Math.floor(Math.random() * pellets.length)];
+  
+  // Regla C: Avanzar preferiblemente a celdas libres (sin regresar por donde vino)
+  const libres = DIRS_LISTA.filter(d => vecinos[d] !== 'pared');
+  const sinReversa = libres.filter(d => d !== OPUESTA[pac.dir]);
+  const opciones = sinReversa.length ? sinReversa : libres;
+  
+  return opciones.length ? opciones[Math.floor(Math.random() * opciones.length)] : pac.dir;
 }
 
 
 /* =============== 7) BUCLE PRINCIPAL Y LOGICA DE TURNO =============== */
+function registrarTraza(modo, accion, percepcion, estadoInterno = null) {
+  const pStr = `PacMan en (${percepcion.pacman.x},${percepcion.pacman.y})`;
+  let detalle = `--> [${accion}] | ${pStr}`;
+  if (estadoInterno && estadoInterno.posicionPreviaPacman) {
+    detalle += ` | PreviaPac(${estadoInterno.posicionPreviaPacman.x},${estadoInterno.posicionPreviaPacman.y})`;
+  }
+  trazaDecisiones.unshift(detalle);
+  if (trazaDecisiones.length > 5) trazaDecisiones.pop();
+}
 
-// Ejecuta un turno completo del juego (percepcion -> decision -> movimiento).
-// Devuelve 'gana', 'pierde' o null si la partida continua.
 function avanzarTick(modo) {
   ticksTranscurridos++;
-  const percepcion = construirPercepcion();
-  let accion, estadoParaMostrar = null;
 
+  // SOLUCION AL REBOTE DE ANIMACION: 
+  // Siempre actualizamos prevX y prevY, se mueva o no se mueva.
+  pac.prevX = pac.x; 
+  pac.prevY = pac.y;
+
+  // --- 1. Movimiento de Pac-Man ---
+  let accionPacman = null;
   if (modo === 'manual') {
-    accion = esValida(pac, teclaDeseada) ? teclaDeseada : (esValida(pac, pac.dir) ? pac.dir : null);
-  } else if (modo === 'reflejo') {
-    accion = agenteReflejo(percepcion);
-  } else { // 'modelo'
-    const r = agenteModelo(percepcion, estadoModelo);
-    accion = r.accion;
-    estadoModelo = r.nuevoEstado;
-    estadoParaMostrar = estadoModelo;
+    accionPacman = esValida(pac, teclaDeseada) ? teclaDeseada : (esValida(pac, pac.dir) ? pac.dir : null);
+  } else {
+    accionPacman = botPacman(); // El entorno asume el control
   }
-
-  actualizarPanel(percepcion, estadoParaMostrar, accion);
-
-  if (accion) {
-    const sig = siguienteCelda(pac.x, pac.y, accion);
+  
+  if (accionPacman) {
+    const sig = siguienteCelda(pac.x, pac.y, accionPacman);
     if (sig) {
-      pac.prevX = pac.x; pac.prevY = pac.y;
-      pac.x = sig.x; pac.y = sig.y; pac.dir = accion;
+      pac.x = sig.x; pac.y = sig.y; pac.dir = accionPacman;
     }
   }
-
   if (dots[pac.y][pac.x]) {
     dots[pac.y][pac.x] = false;
     score += 10;
     dotsRestantes--;
   }
 
-  moverFantasmas();
+  // --- 2. Movimiento de Fantasmas ---
+  let estadoParaMostrar = null;
+  let percepcionMostrar = null;
+  let accionMostrar = null;
+
+  for (const g of ghosts) {
+    g.prevX = g.x; g.prevY = g.y;
+    let accionFantasma = null;
+    
+    if (modo === 'reflejo' && g.nombre === 'Blinky') {
+      const percepcion = construirPercepcionGhost(g);
+      accionFantasma = agenteReflejo(percepcion);
+      percepcionMostrar = percepcion;
+      accionMostrar = accionFantasma;
+      if (accionFantasma) registrarTraza(modo, accionFantasma, percepcion);
+    } 
+    else if (modo === 'modelo' && g.nombre === 'Pinky') {
+      const percepcion = construirPercepcionGhost(g);
+      const r = agenteModelo(percepcion, g.estadoInternoPropio);
+      accionFantasma = r.accion;
+      g.estadoInternoPropio = r.nuevoEstado;
+      estadoParaMostrar = g.estadoInternoPropio;
+      percepcionMostrar = percepcion;
+      accionMostrar = accionFantasma;
+      if (accionFantasma) registrarTraza(modo, accionFantasma, percepcion, g.estadoInternoPropio);
+    } 
+    else {
+      // Si estamos en modo manual, o es un fantasma secundario
+      const percepcion = construirPercepcionGhost(g);
+      if (g.nombre === 'Blinky') accionFantasma = agenteReflejo(percepcion);
+      else if (g.nombre === 'Pinky') {
+        const r = agenteModelo(percepcion, g.estadoInternoPropio);
+        accionFantasma = r.accion;
+        g.estadoInternoPropio = r.nuevoEstado;
+      }
+    }
+
+    if (accionFantasma) {
+      const sig = siguienteCelda(g.x, g.y, accionFantasma);
+      if (sig) {
+         g.x = sig.x; g.y = sig.y; g.dir = accionFantasma;
+      }
+    }
+  }
+
+  // --- 3. Actualizar UI y colisiones ---
+  if (!enBatch) {
+    if (modo !== 'manual') {
+      actualizarPanel(percepcionMostrar, estadoParaMostrar, accionMostrar);
+    } else {
+      document.getElementById('percepcionBox').textContent = '(Modo manual, IAs operando en fondo)';
+      document.getElementById('estadoBox').textContent = '-';
+      document.getElementById('accionBox').textContent = '-';
+      document.getElementById('trazaBox').textContent = '-';
+      document.getElementById('scoreDisplay').textContent = score;
+    }
+  }
 
   for (const g of ghosts) {
     if (g.x === pac.x && g.y === pac.y) return 'pierde';
@@ -521,19 +569,17 @@ function avanzarTick(modo) {
 }
 
 function actualizarPanel(percepcion, estadoInterno, accion) {
-  if (enBatch) return;
-  document.getElementById('percepcionBox').textContent = JSON.stringify(percepcion, null, 1);
-  if (estadoInterno) {
-    const legible = {
-      direccionObjetivoPrevia: estadoInterno.direccionObjetivoPrevia,
-      celdasVisitadas: '[' + estadoInterno.celdasVisitadas.size + ' celdas]',
-      historialFantasmas: estadoInterno.historialFantasmas
-    };
-    document.getElementById('estadoBox').textContent = JSON.stringify(legible, null, 1);
-  } else {
-    document.getElementById('estadoBox').textContent = '(sin estado interno: agente reactivo / manual)';
+  if (percepcion) {
+    const percBreve = { pos: percepcion.pos, pacman: percepcion.pacman, direccionActual: percepcion.direccionActual };
+    document.getElementById('percepcionBox').textContent = JSON.stringify(percBreve, null, 1);
   }
-  document.getElementById('accionBox').textContent = accion || '(sin accion valida)';
+  if (estadoInterno) {
+    document.getElementById('estadoBox').textContent = JSON.stringify(estadoInterno, null, 1);
+  } else {
+    document.getElementById('estadoBox').textContent = '(Blinky no usa memoria)';
+  }
+  document.getElementById('accionBox').textContent = accion || '-';
+  document.getElementById('trazaBox').textContent = trazaDecisiones.join('\n') || '-';
   document.getElementById('scoreDisplay').textContent = score;
 }
 
@@ -542,21 +588,42 @@ function iniciarPartida(modo) {
   dots = clonarDots(dotsBase);
   dotsRestantes = contarDotsBase;
   pac = { x: PAC_SPAWN.x, y: PAC_SPAWN.y, prevX: PAC_SPAWN.x, prevY: PAC_SPAWN.y, dir: 'izquierda' };
-  ghosts = GHOST_SPAWNS.map((s, i) => ({ x: s.x, y: s.y, prevX: s.x, prevY: s.y, dir: 'arriba', color: COLORES_FANTASMAS[i] }));
+  
+  ghosts = [];
+  if (modo === 'manual') {
+    ghosts.push({ x: 15, y: 11, prevX: 15, prevY: 11, dir: 'arriba', color: COLORES_FANTASMAS.Blinky, nombre: 'Blinky' });
+    ghosts.push({ x: 16, y: 11, prevX: 16, prevY: 11, dir: 'arriba', color: COLORES_FANTASMAS.Pinky, nombre: 'Pinky', estadoInternoPropio: crearEstadoModeloInicial() });
+  } else if (modo === 'reflejo') {
+    ghosts.push({ x: 15, y: 11, prevX: 15, prevY: 11, dir: 'arriba', color: COLORES_FANTASMAS.Blinky, nombre: 'Blinky' });
+  } else if (modo === 'modelo') {
+    ghosts.push({ x: 16, y: 11, prevX: 16, prevY: 11, dir: 'arriba', color: COLORES_FANTASMAS.Pinky, nombre: 'Pinky', estadoInternoPropio: crearEstadoModeloInicial() });
+  }
+
   score = 0;
   ticksTranscurridos = 0;
-  estadoModelo = crearEstadoModeloInicial();
+  trazaDecisiones = [];
   teclaDeseada = null;
   estadoJuego = 'jugando';
   acumulador = 0;
-  document.getElementById('stateDisplay').textContent = 'jugando';
-  document.getElementById('scoreDisplay').textContent = '0';
+  
+  if (modo !== 'manual' && !enBatch) {
+    document.getElementById('btnFastForward').disabled = false;
+  } else {
+    document.getElementById('btnFastForward').disabled = true;
+  }
+  
+  if (!enBatch) {
+    document.getElementById('stateDisplay').textContent = 'jugando';
+    document.getElementById('scoreDisplay').textContent = '0';
+    document.getElementById('trazaBox').textContent = '-';
+  }
 }
 
 function finalizarPartida(resultado) {
   estadoJuego = 'fin';
   ultimoResultado = resultado;
-  document.getElementById('stateDisplay').textContent = resultado === 'gana' ? 'ganaste' : 'perdiste';
+  document.getElementById('stateDisplay').textContent = resultado === 'gana' ? 'Ganó Pac-Man' : 'Atrapado por fantasma';
+  document.getElementById('btnFastForward').disabled = true;
 }
 
 /* ---------------------- render ---------------------- */
@@ -586,9 +653,8 @@ function dibujar(t) {
   ctx.fillStyle = '#ffffff';
   ctx.font = '14px monospace';
   ctx.textAlign = 'left';
-  ctx.fillText('Puntaje: ' + score, 8, 16);
-  ctx.fillText('Dots restantes: ' + dotsRestantes, 150, 16);
-  ctx.fillText('Modo: ' + modoActual, 340, 16);
+  ctx.fillText('Puntaje Pac-Man: ' + score, 8, 16);
+  ctx.fillText('Modo: ' + modoActual, 400, 16);
 
   if (estadoJuego === 'menu') dibujarPantallaInicio();
   if (estadoJuego === 'fin') dibujarPantallaFin();
@@ -647,7 +713,7 @@ function dibujarPantallaInicio() {
   ctx.fillStyle = '#ffffff';
   ctx.font = '14px monospace';
   ctx.fillText('Elige un modo y pulsa "Iniciar / Reiniciar" (o ESPACIO)', canvas.width / 2, canvas.height / 2);
-  ctx.fillText('En modo Manual usa las flechas del teclado', canvas.width / 2, canvas.height / 2 + 22);
+  ctx.fillText('En modo Manual usas flechas. En modos IA observas al agente evaluado.', canvas.width / 2, canvas.height / 2 + 22);
   ctx.textAlign = 'left';
 }
 
@@ -655,19 +721,18 @@ function dibujarPantallaFin() {
   ctx.fillStyle = 'rgba(0,0,0,0.78)';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.textAlign = 'center';
-  ctx.fillStyle = ultimoResultado === 'gana' ? '#7CFC00' : '#ff4444';
+  ctx.fillStyle = ultimoResultado === 'gana' ? '#ff4444' : '#7CFC00'; // Verde si atraparon a pacman (gano el agente)
   ctx.font = '30px monospace';
-  ctx.fillText(ultimoResultado === 'gana' ? 'GANASTE' : 'PERDISTE', canvas.width / 2, canvas.height / 2 - 30);
+  ctx.fillText(ultimoResultado === 'gana' ? 'PAC-MAN ESCAPÓ' : 'PAC-MAN ATRAPADO', canvas.width / 2, canvas.height / 2 - 30);
   ctx.fillStyle = '#ffffff';
   ctx.font = '16px monospace';
-  ctx.fillText('Puntaje final: ' + score, canvas.width / 2, canvas.height / 2);
+  ctx.fillText('Puntaje Pac-Man: ' + score + ' (menor es mejor para fantasma)', canvas.width / 2, canvas.height / 2);
   ctx.fillText('Tiempo de supervivencia: ' + (ticksTranscurridos * INTERVALO_MOV / 1000).toFixed(1) + ' s', canvas.width / 2, canvas.height / 2 + 22);
   ctx.font = '13px monospace';
   ctx.fillText('Presiona ESPACIO o "Iniciar / Reiniciar" para jugar de nuevo', canvas.width / 2, canvas.height / 2 + 50);
   ctx.textAlign = 'left';
 }
 
-/* bucle principal basado en requestAnimationFrame */
 function loop(timestamp) {
   if (!ultimoTiempo) ultimoTiempo = timestamp;
   const delta = timestamp - ultimoTiempo;
@@ -690,15 +755,7 @@ function loop(timestamp) {
 
 /* ============ 8) MODO EXPERIMENTACION: 20 PARTIDAS POR AGENTE ============ */
 function jugarPartidaHeadless(modo) {
-  dots = clonarDots(dotsBase);
-  dotsRestantes = contarDotsBase;
-  pac = { x: PAC_SPAWN.x, y: PAC_SPAWN.y, prevX: PAC_SPAWN.x, prevY: PAC_SPAWN.y, dir: 'izquierda' };
-  ghosts = GHOST_SPAWNS.map((s, i) => ({ x: s.x, y: s.y, prevX: s.x, prevY: s.y, dir: 'arriba', color: COLORES_FANTASMAS[i] }));
-  score = 0;
-  ticksTranscurridos = 0;
-  estadoModelo = crearEstadoModeloInicial();
-  teclaDeseada = null;
-
+  iniciarPartida(modo);
   let resultado = null;
   let ticks = 0;
   const MAX_TICKS = 3000;
@@ -721,21 +778,22 @@ function desviacionEstandar(arr) {
 }
 
 function mostrarResultados(resultadosPorAgente) {
-  const nombres = { reflejo: 'Agente de Reflejo', modelo: 'Agente Basado en Modelo' };
+  const nombres = { reflejo: 'Blinky (Reflejo)', modelo: 'Pinky (Modelo)' };
   let html = '<table class="tablaResultados"><thead><tr>' +
-    '<th>Agente</th><th>Puntaje prom.</th><th>Desv. estandar</th>' +
-    '<th>Tiempo superv. prom. (s)</th><th>Victorias</th></tr></thead><tbody>';
+    '<th>Agente Fantasma</th><th>Puntaje Pac-Man<br>(menor=mejor)</th><th>Desv. est.</th>' +
+    '<th>Tiempo superv.<br>(menor=mejor)</th><th>Capturas</th></tr></thead><tbody>';
 
   for (const key of ['reflejo', 'modelo']) {
     const partidas = resultadosPorAgente[key];
     const puntajes = partidas.map(p => p.puntaje);
     const tiempos = partidas.map(p => p.tiempo);
-    const victorias = partidas.filter(p => p.resultado === 'gana').length;
+    const capturas = partidas.filter(p => p.resultado === 'pierde').length; // Pierde pacman = fantasma gana
+    
     html += '<tr><td>' + nombres[key] + '</td>' +
       '<td>' + media(puntajes).toFixed(1) + '</td>' +
       '<td>' + desviacionEstandar(puntajes).toFixed(1) + '</td>' +
-      '<td>' + media(tiempos).toFixed(1) + '</td>' +
-      '<td>' + victorias + '/20</td></tr>';
+      '<td>' + media(tiempos).toFixed(1) + ' s</td>' +
+      '<td>' + capturas + '/20</td></tr>';
   }
   html += '</tbody></table>';
   document.getElementById('resultsContainer').innerHTML = html;
@@ -745,7 +803,8 @@ function ejecutarLote() {
   enBatch = true;
   document.getElementById('btnStart').disabled = true;
   document.getElementById('btnBatch').disabled = true;
-  document.getElementById('resultsContainer').textContent = 'Ejecutando 40 partidas (20 por agente)...';
+  document.getElementById('btnFastForward').disabled = true;
+  document.getElementById('resultsContainer').innerHTML = '<div style="color:#ff9d5c; font-size:13px; text-align:center;">Ejecutando 40 partidas (20 por fantasma)...</div>';
 
   setTimeout(() => {
     const resultadosPorAgente = {};
@@ -761,12 +820,12 @@ function ejecutarLote() {
     document.getElementById('percepcionBox').textContent = '-';
     document.getElementById('estadoBox').textContent = '-';
     document.getElementById('accionBox').textContent = '-';
+    document.getElementById('trazaBox').textContent = '-';
     document.getElementById('stateDisplay').textContent = 'menu';
     document.getElementById('btnStart').disabled = false;
     document.getElementById('btnBatch').disabled = false;
-  }, 30); // pequeno delay para que se pinte el mensaje "Ejecutando..."
+  }, 50); 
 }
-
 
 /* ================= 9) INTERFAZ / EVENTOS / INICIALIZACION ================= */
 window.addEventListener('keydown', (e) => {
@@ -777,7 +836,7 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.code === 'Space') {
     e.preventDefault();
-    if (estadoJuego !== 'jugando') iniciarPartida(modoActual);
+    if (estadoJuego !== 'jugando' && !enBatch) iniciarPartida(modoActual);
   }
 });
 
@@ -787,9 +846,19 @@ document.getElementById('modoSelect').addEventListener('change', (e) => {
 document.getElementById('btnStart').addEventListener('click', () => {
   iniciarPartida(document.getElementById('modoSelect').value);
 });
+document.getElementById('btnFastForward').addEventListener('click', () => {
+  if (estadoJuego !== 'jugando' || modoActual === 'manual') return;
+  let res = null;
+  let fallbacks = 0;
+  while (!res && fallbacks < 3000) {
+    res = avanzarTick(modoActual);
+    fallbacks++;
+  }
+  if (!res) res = 'tiempo_agotado';
+  finalizarPartida(res);
+});
 document.getElementById('btnBatch').addEventListener('click', ejecutarLote);
 
-// --- estado global e inicializacion ---
 let maze = crearLaberinto();
 let dotsBase = crearDots(maze);
 let contarDotsBase = 0;
@@ -806,10 +875,10 @@ let ultimoTiempo = 0;
 let dots = clonarDots(dotsBase);
 let dotsRestantes = contarDotsBase;
 let pac = { x: PAC_SPAWN.x, y: PAC_SPAWN.y, prevX: PAC_SPAWN.x, prevY: PAC_SPAWN.y, dir: 'izquierda' };
-let ghosts = GHOST_SPAWNS.map((s, i) => ({ x: s.x, y: s.y, prevX: s.x, prevY: s.y, dir: 'arriba', color: COLORES_FANTASMAS[i] }));
+let ghosts = [];
 let score = 0;
 let ticksTranscurridos = 0;
-let estadoModelo = crearEstadoModeloInicial();
+let trazaDecisiones = [];
 
 requestAnimationFrame(loop);
 </script>
