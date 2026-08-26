@@ -510,34 +510,49 @@ function agenteUtilidad(percepcion) {
 
 /* ============ 4) BOT PAC-MAN ============ */
 function botPacman() {
-  const vecinos = {};
-  for (const dir of DIRS_LISTA) {
-    const sig = siguienteCelda(pac.x, pac.y, dir);
-    if (!sig) vecinos[dir] = 'pared';
-    else if (ghosts.some(g => g.x === sig.x && g.y === sig.y)) vecinos[dir] = 'fantasma';
-    else if (dots[sig.y][sig.x]) vecinos[dir] = 'pellet';
-    else vecinos[dir] = 'libre';
+  const pos = {x: pac.x, y: pac.y};
+  
+  // Opciones válidas: Sin pared y sin un fantasma EXACTAMENTE en esa celda
+  const opciones = DIRS_LISTA.filter(d => {
+    const sig = siguienteCelda(pos.x, pos.y, d);
+    return sig !== null && !ghosts.some(g => g.x === sig.x && g.y === sig.y);
+  });
+  
+  if (opciones.length === 0) return pac.dir; // Acorralado totalmente
+
+  let mejorUtilidad = -Infinity;
+  let mejoresDirs = [];
+
+  for (const d of opciones) {
+    const sig = siguienteCelda(pos.x, pos.y, d);
+    
+    // Medir a qué distancia quedará el fantasma MÁS CERCANO si toma este camino
+    let distMinimaFantasma = Infinity;
+    for (const g of ghosts) {
+      const dist = distManhattan(sig, g);
+      if (dist < distMinimaFantasma) distMinimaFantasma = dist;
+    }
+
+    // FUNCIÓN DE UTILIDAD MAXIMIN:
+    // Su meta es maximizar la distancia al fantasma más cercano.
+    let utilidad = distMinimaFantasma * 10;
+    
+    // Penalización para evitar estar retrocediendo si no hay un peligro que lo obligue
+    if (d === OPUESTA[pac.dir]) utilidad -= 5;
+    
+    // Bono ínfimo por comer: Ahora comer puntos es un objetivo absolutamente secundario
+    if (dots[sig.y][sig.x]) utilidad += 1;
+
+    if (utilidad > mejorUtilidad) {
+      mejorUtilidad = utilidad;
+      mejoresDirs = [d];
+    } else if (utilidad === mejorUtilidad) {
+      mejoresDirs.push(d);
+    }
   }
 
-  const pos = {x: pac.x, y: pac.y};
-  let posiblesHuidas = [];
-  for (const d of DIRS_LISTA) {
-    const hayFantasma = ghosts.some(f => {
-       const s = siguienteCelda(pos.x, pos.y, d);
-       return s && s.x === f.x && s.y === f.y;
-    });
-    if (hayFantasma && vecinos[OPUESTA[d]] !== 'pared') posiblesHuidas.push(OPUESTA[d]);
-  }
-  if (posiblesHuidas.length > 0) return posiblesHuidas[Math.floor(Math.random() * posiblesHuidas.length)];
-  
-  let pellets = [];
-  for (const d of DIRS_LISTA) if (vecinos[d] === 'pellet') pellets.push(d);
-  if (pellets.length > 0) return pellets[Math.floor(Math.random() * pellets.length)];
-  
-  const libres = DIRS_LISTA.filter(d => vecinos[d] !== 'pared');
-  const sinReversa = libres.filter(d => d !== OPUESTA[pac.dir]);
-  const opciones = sinReversa.length ? sinReversa : libres;
-  return opciones.length ? opciones[Math.floor(Math.random() * opciones.length)] : pac.dir;
+  // Empate resuelto al azar (entropía para no repetir los mismos escapes)
+  return mejoresDirs[Math.floor(Math.random() * mejoresDirs.length)];
 }
 
 
