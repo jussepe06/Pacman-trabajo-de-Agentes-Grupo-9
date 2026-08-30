@@ -1,0 +1,1276 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>MEGA-X DEMO :: Boss Fight IA</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: radial-gradient(circle at 50% 0%, #14182b 0%, #06070f 70%);
+    color: #d7e8ff;
+    font-family: 'Courier New', Courier, monospace;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 18px;
+  }
+  #app {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .titulo {
+    text-align: center;
+    letter-spacing: 4px;
+    color: #6ff2ff;
+    text-shadow: 0 0 8px #1fd0ff, 0 0 2px #fff;
+    margin: 0 0 10px 0;
+    font-size: 22px;
+  }
+  #canvasWrap {
+    border: 3px solid #3fd6ff;
+    box-shadow: 0 0 18px #1fb3ff55, inset 0 0 30px #00121f;
+    border-radius: 6px;
+    position: relative;
+    background: #000;
+    width: max-content;
+    margin: 0 auto;
+  }
+  canvas {
+    display: block;
+    image-rendering: pixelated;
+    background: #05070d;
+  }
+  #panel {
+    width: 340px;
+    background: #0c1020;
+    border: 2px solid #2c3a63;
+    border-radius: 6px;
+    padding: 12px 14px;
+    max-height: 660px;
+    overflow-y: auto;
+  }
+  #panel h2 {
+    font-size: 14px;
+    color: #ffd166;
+    border-bottom: 1px solid #2c3a63;
+    padding-bottom: 4px;
+    margin-top: 18px;
+  }
+  #panel h2:first-child { margin-top: 0; }
+  label { font-size: 12px; color: #9db3e0; display:block; margin-top:8px;}
+  select, button {
+    font-family: inherit;
+    background: #16204a;
+    color: #d7e8ff;
+    border: 1px solid #3fd6ff;
+    border-radius: 4px;
+    padding: 6px 8px;
+    cursor: pointer;
+    font-size: 13px;
+    margin-top: 4px;
+  }
+  select:hover, button:hover { background: #223066; }
+  button:active { transform: translateY(1px); }
+  .fila-btns { display:flex; gap:6px; flex-wrap: wrap; }
+  #cajaPercepcion {
+    background: #060a16;
+    border: 1px solid #263257;
+    border-radius: 4px;
+    padding: 8px;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: normal;
+    word-break: break-word;
+    max-height: 260px;
+    overflow-y: auto;
+    color: #8ff0c0;
+  }
+  #resultsPanel table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    margin-top: 6px;
+  }
+  #resultsPanel th, #resultsPanel td {
+    border: 1px solid #2c3a63;
+    padding: 4px 6px;
+    text-align: center;
+  }
+  #resultsPanel th { background: #16204a; color: #ffd166; }
+  .badge {
+    display:inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    margin-top: 6px;
+    background: #16204a;
+    border: 1px solid #3fd6ff;
+  }
+  .subtexto { font-size: 10px; color: #6f83b3; margin-top:4px; }
+
+  /* --- Estilos para el nuevo HUD de Percepción --- */
+  .hud-section { 
+    margin-bottom: 10px; 
+    padding-bottom: 6px; 
+    border-bottom: 1px dashed #2c3a63; 
+  }
+  .hud-section:last-child { border-bottom: none; margin-bottom: 0; }
+  .hud-title { 
+    color: #3fd6ff; 
+    font-weight: bold; 
+    font-size: 12px; 
+    margin-bottom: 4px; 
+    display: block; 
+    text-shadow: 0 0 4px rgba(63,214,255,0.5);
+  }
+  .hud-row { display: flex; justify-content: space-between; margin-bottom: 3px; }
+  .hud-label { color: #6f83b3; }
+  .hud-value { color: #8ff0c0; font-weight: bold; }
+  .hud-action-badge {
+    display: inline-block; 
+    padding: 3px 8px; 
+    border-radius: 4px; 
+    margin-right: 4px;
+    background: #16204a; 
+    color: #4fc3ff; 
+    border: 1px solid #2c3a63;
+    transition: all 0.1s;
+  }
+  .hud-action-active { 
+    background: #ffd166; 
+    color: #000; 
+    border-color: #fff;
+    box-shadow: 0 0 6px #ffd166;
+  }
+
+</style>
+</head>
+<body>
+<div id="app">
+  <div>
+    <div class="titulo">M E G A - X &nbsp;// &nbsp;DEMO RETRO &nbsp;// &nbsp;BOSS FIGHT IA</div>
+    <div id="canvasWrap">
+      <canvas id="gameCanvas" width="640" height="480"></canvas>
+    </div>
+    <div class="subtexto" style="text-align:center; margin-top:6px;">
+      Controles manuales: Flechas = mover / saltar &nbsp;·&nbsp; ESPACIO = disparar &nbsp;·&nbsp; ENTER = iniciar / reiniciar
+    </div>
+  </div>
+
+  <div id="panel">
+    <h2>CONTROL</h2>
+    <label for="modeSelect">Modo de control</label>
+    <select id="modeSelect">
+      <option value="manual">Manual (teclado)</option>
+      <option value="reflejo">Agente de reflejo simple</option>
+      <option value="modelo">Agente basado en modelo</option>
+    </select>
+    <div class="fila-btns">
+      <button id="btnStart">Iniciar / Reiniciar</button>
+      <button id="btnPause">Pausa</button>
+    </div>
+    <div class="fila-btns">
+      <button id="btnBatch">Ejecutar 20 partidas</button>
+    </div>
+    <div id="estadoPantalla" class="badge">Pantalla: inicio</div>
+
+    <h2>PERCEPCIÓN / ESTADO / ACCIÓN</h2>
+    <div id="cajaPercepcion">Esperando inicio de partida...</div>
+
+    <h2>RESULTADOS (20 partidas x agente)</h2>
+    <div id="resultsPanel"><span class="subtexto">Aún no se ha ejecutado la simulación.</span></div>
+  </div>
+</div>
+
+<script>
+/* =========================================================================
+   MEGA-X DEMO — JUEGO + DOS AGENTES DE IA
+   Estructura del archivo:
+     1) CONSTANTES Y UTILIDADES
+     2) LÓGICA DEL JUEGO (estado, física, IA del jefe, colisiones)
+     3) AGENTES (reflejo simple / basado en modelo)   <-- sección pedida
+     4) RENDERIZADO (canvas, pantallas)
+     5) BUCLE PRINCIPAL Y CONTROL DE ENTRADA
+     6) SIMULACIÓN POR LOTES (20 partidas) Y ESTADÍSTICAS
+   ========================================================================= */
+
+/* ------------------------- 1) CONSTANTES Y UTILIDADES ------------------- */
+const CANVAS_W = 640, CANVAS_H = 480;
+const GROUND_Y = 420;
+// Salto más realista y más lento: gravedad e impulso reducidos otra vez
+// para que el ascenso/descenso se sienta pausado, sin "tirones" bruscos.
+const GRAVITY = 0.14;
+const JUMP_VELOCITY = -5.6;
+const MAX_FALL_SPEED = 8; // velocidad terminal de caída
+const MOVE_SPEED = 2.2;
+
+const PLAYER_W = 24, PLAYER_H = 36;
+const BOSS_W = 50, BOSS_H = 60;
+
+const PLAYER_MAX_HP = 100;
+const BOSS_MAX_HP = 120;
+
+const PLAYER_SHOOT_COOLDOWN = 32; // cadencia de disparo reducida (antes 15)
+const PLAYER_PROJECTILE_SPEED = 7;
+const PLAYER_PROJECTILE_DAMAGE = 5;
+
+// Ataques del jefe ralentizados: proyectiles y embestida más lentos, más
+// tiempo de aviso (telegraph) para reaccionar, y más pausa entre ataques.
+const BOSS_PROJECTILE_SPEED = 3.6;
+const BOSS_PROJECTILE_DAMAGE = 8;
+const BOSS_DASH_SPEED = 6;
+const BOSS_DASH_DAMAGE = 15;
+
+const BOSS_IDLE_MIN = 85, BOSS_IDLE_MAX = 130;
+const TELEGRAPH_DURATION = 60;
+const DASH_DURATION = 55;
+
+const MAX_SIM_STEPS = 18000; // tope de 60s (a 60 pasos/seg) para partidas headless
+
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+function randInt(min, max) { return Math.floor(min + Math.random() * (max - min + 1)); }
+function rectsOverlap(a, b) {
+  return a.x < b.x + b.width && a.x + a.width > b.x &&
+         a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+/* ------------------------- 2) LÓGICA DEL JUEGO --------------------------- */
+
+// Crea un estado de partida limpio (usado tanto en modo en vivo como en simulaciones)
+function crearEstadoInicial() {
+  return {
+    frame: 0,
+    score: 0,
+    player: {
+      x: 80, y: GROUND_Y - PLAYER_H, vx: 0, vy: 0,
+      hp: PLAYER_MAX_HP, facing: 1, onGround: true,
+      shootCooldown: 0, invuln: 0, walkPhase: 0,
+      scaleX: 1, scaleY: 1 // para el efecto visual de estiramiento/aplastamiento
+    },
+    boss: {
+      x: 480, y: GROUND_Y - BOSS_H, hp: BOSS_MAX_HP,
+      state: 'idle', timer: randInt(BOSS_IDLE_MIN, BOSS_IDLE_MAX),
+      attackType: null,
+      nextAttackType: Math.random() < 0.5 ? 'proj' : 'dash',
+      wanderDir: 1, dashDir: 1, walkPhase: 0
+    },
+    particulas: [],
+    projectiles: []
+  };
+}
+
+// Construye el objeto de PERCEPCIÓN que reciben los agentes (sólo información
+// del instante actual: no incluye velocidades de proyectiles/jefe a propósito,
+// para que el agente basado en modelo tenga una ventaja real al estimarlas
+// con memoria propia).
+function getPerception(state) {
+  const boss = state.boss;
+  return {
+    player: {
+      x: state.player.x, y: state.player.y,
+      vx: state.player.vx, vy: state.player.vy,
+      onGround: state.player.onGround, hp: state.player.hp, facing: state.player.facing
+    },
+    boss: {
+      x: boss.x, y: boss.y, hp: boss.hp,
+      attackState: boss.state, // 'idle' | 'telegraph' | 'attack'
+      attackType: (boss.state === 'telegraph' || boss.state === 'attack') ? boss.attackType : null
+    },
+    proyectiles: state.projectiles
+      .filter(p => p.owner === 'boss' && !p.dead)
+      .map(p => ({ x: p.x, y: p.y, w: p.width, h: p.height })),
+    distanciaAlJefe: boss.x - state.player.x,
+    frame: state.frame
+  };
+}
+
+// IA del jefe: máquina de estados idle -> telegraph -> attack -> idle...
+// Alterna estrictamente entre ataque de proyectil y embestida (dash),
+// lo que genera un PATRÓN predecible que el agente basado en modelo
+// puede aprender observando el historial.
+function actualizarJefe(state) {
+  const boss = state.boss;
+  const player = state.player;
+  boss.timer--;
+
+  switch (boss.state) {
+    case 'idle':
+      boss.x += boss.wanderDir * 1;
+      boss.walkPhase += 0.15;
+      if (boss.x < 380) boss.wanderDir = 1;
+      if (boss.x > 560) boss.wanderDir = -1;
+      if (boss.timer <= 0) {
+        boss.attackType = boss.nextAttackType;
+        boss.nextAttackType = (boss.attackType === 'proj') ? 'dash' : 'proj';
+        boss.state = 'telegraph';
+        boss.timer = TELEGRAPH_DURATION;
+      }
+      break;
+
+    case 'telegraph':
+      if (boss.timer <= 0) {
+        boss.state = 'attack';
+        if (boss.attackType === 'proj') {
+          boss.timer = 12;
+          const dir = player.x < boss.x ? -1 : 1;
+          state.projectiles.push({
+            x: boss.x, y: GROUND_Y - 16, vx: BOSS_PROJECTILE_SPEED * dir, vy: 0,
+            width: 12, height: 8, owner: 'boss', dead: false
+          });
+          sonidoAtaqueJefeProyectil();
+        } else {
+          boss.timer = DASH_DURATION;
+          boss.dashDir = player.x < boss.x ? -1 : 1;
+          sonidoAtaqueJefeDash();
+        }
+      }
+      break;
+
+    case 'attack':
+      if (boss.attackType === 'dash') {
+        boss.x += boss.dashDir * BOSS_DASH_SPEED;
+        boss.x = clamp(boss.x, 10, CANVAS_W - 10 - BOSS_W);
+        boss.walkPhase += 0.6;
+      }
+      if (boss.timer <= 0) {
+        boss.state = 'idle';
+        boss.timer = randInt(BOSS_IDLE_MIN, BOSS_IDLE_MAX);
+      }
+      break;
+  }
+}
+
+function manejarColisiones(state) {
+  const player = state.player, boss = state.boss;
+
+  state.projectiles.forEach(pr => {
+    if (pr.dead) return;
+    if (pr.owner === 'player' &&
+        rectsOverlap(pr, { x: boss.x, y: boss.y, width: BOSS_W, height: BOSS_H })) {
+      boss.hp -= PLAYER_PROJECTILE_DAMAGE;
+      pr.dead = true;
+      state.score += 20;
+    }
+    if (pr.owner === 'boss' && player.invuln <= 0 &&
+        rectsOverlap(pr, { x: player.x, y: player.y, width: PLAYER_W, height: PLAYER_H })) {
+      player.hp -= BOSS_PROJECTILE_DAMAGE;
+      pr.dead = true;
+      player.invuln = 100;
+    }
+  });
+
+  if (boss.state === 'attack' && boss.attackType === 'dash' && player.invuln <= 0 &&
+      rectsOverlap({ x: boss.x, y: boss.y, width: BOSS_W, height: BOSS_H },
+                    { x: player.x, y: player.y, width: PLAYER_W, height: PLAYER_H })) {
+    player.hp -= BOSS_DASH_DAMAGE;
+    player.invuln = 100;
+    player.x = clamp(player.x + boss.dashDir * 26, 10, CANVAS_W - 10 - PLAYER_W);
+  }
+}
+
+// Genera una pequeña nube de partículas de polvo (usada al despegar/aterrizar)
+function crearParticulasPolvo(state, x, y, cantidad) {
+  for (let i = 0; i < cantidad; i++) {
+    state.particulas.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 2.6,
+      vy: -Math.random() * 1.6,
+      vida: 16 + Math.random() * 10,
+      vidaMax: 26,
+      radio: 1.3 + Math.random() * 1.6
+    });
+  }
+}
+
+function actualizarParticulas(state) {
+  state.particulas.forEach(pt => {
+    pt.x += pt.vx; pt.y += pt.vy;
+    pt.vy += 0.08;
+    pt.vida--;
+  });
+  state.particulas = state.particulas.filter(pt => pt.vida > 0);
+}
+
+// Avanza un paso de física/juego dada una acción {left,right,jump,shoot}
+function stepGame(state, action) {
+  const player = state.player;
+  const estabaEnSueloAntes = player.onGround; // para detectar despegue/aterrizaje este frame
+
+  player.vx = 0;
+  if (action.left) { player.vx = -MOVE_SPEED; player.facing = -1; }
+  if (action.right) { player.vx = MOVE_SPEED; player.facing = 1; }
+  player.x = clamp(player.x + player.vx, 10, CANVAS_W - 10 - PLAYER_W);
+
+  // Fase de caminata: avanza sólo si se mueve y está en el suelo (usada para
+  // animar el tijereteo de piernas en el dibujo del humanoide).
+  if (player.vx !== 0 && player.onGround) player.walkPhase += 0.35;
+
+  if (action.jump && player.onGround) {
+    player.vy = JUMP_VELOCITY;
+    player.onGround = false;
+  }
+  player.vy += GRAVITY;
+  if (player.vy > MAX_FALL_SPEED) player.vy = MAX_FALL_SPEED; // velocidad terminal
+  player.y += player.vy;
+  if (player.y >= GROUND_Y - PLAYER_H) {
+    player.y = GROUND_Y - PLAYER_H;
+    player.vy = 0;
+    player.onGround = true;
+  }
+
+  // --- Efecto visual y sonoro de salto / caída ---
+  const despegoEsteFrame = estabaEnSueloAntes && !player.onGround;
+  const aterrizoEsteFrame = !estabaEnSueloAntes && player.onGround;
+  const piesX = player.x + PLAYER_W / 2;
+  const piesY = player.y + PLAYER_H;
+
+  if (despegoEsteFrame) {
+    crearParticulasPolvo(state, piesX, piesY, 6);
+    sonidoSalto();
+  }
+  if (aterrizoEsteFrame) {
+    crearParticulasPolvo(state, piesX, piesY, 11);
+    sonidoAterrizaje();
+    player.scaleY = 0.7;  // aplastamiento al impactar
+    player.scaleX = 1.28;
+  }
+  if (!player.onGround) {
+    // Estiramiento vertical proporcional a la velocidad: se estira al subir
+    // rápido y también al caer rápido, como en el squash-and-stretch clásico.
+    const estiramiento = clamp(Math.abs(player.vy) * 0.035, 0, 0.22);
+    const objetivoY = 1 + estiramiento;
+    const objetivoX = 1 - estiramiento * 0.5;
+    player.scaleY += (objetivoY - player.scaleY) * 0.3;
+    player.scaleX += (objetivoX - player.scaleX) * 0.3;
+  } else if (!aterrizoEsteFrame) {
+    // en el suelo y quieto: relajar de a poco hacia la escala normal
+    player.scaleY += (1 - player.scaleY) * 0.25;
+    player.scaleX += (1 - player.scaleX) * 0.25;
+  }
+
+  if (player.shootCooldown > 0) player.shootCooldown--;
+  if (action.shoot && player.shootCooldown <= 0) {
+    state.projectiles.push({
+      x: player.x + (player.facing > 0 ? PLAYER_W : -6),
+      y: player.y + PLAYER_H / 2 - 2,
+      vx: PLAYER_PROJECTILE_SPEED * player.facing, vy: 0,
+      width: 6, height: 4, owner: 'player', dead: false
+    });
+    player.shootCooldown = PLAYER_SHOOT_COOLDOWN;
+    sonidoDisparo();
+  }
+  if (player.invuln > 0) player.invuln--;
+
+  actualizarJefe(state);
+  actualizarParticulas(state);
+
+  state.projectiles.forEach(pr => {
+    pr.x += pr.vx; pr.y += pr.vy;
+    if (pr.x < -30 || pr.x > CANVAS_W + 30) pr.dead = true;
+  });
+
+  manejarColisiones(state);
+  state.projectiles = state.projectiles.filter(pr => !pr.dead);
+
+  state.frame++;
+
+  let ended = false, won = false;
+  if (player.hp <= 0) { ended = true; won = false; }
+  else if (state.boss.hp <= 0) { ended = true; won = true; }
+  return { ended, won };
+}
+
+/* ============================================================
+   3) AGENTES DE IA
+   ============================================================ */
+
+/* ---------- 3.1 AGENTE DE REFLEJO SIMPLE -----------------------
+   No mantiene memoria de estados anteriores: decide únicamente en
+   función de la percepción del instante actual, mediante un
+   conjunto explícito de reglas condición-acción evaluadas en orden
+   de prioridad (la primera regla que aplica determina la acción). */
+function agenteReflejo(percepcion) {
+  const accion = { left: false, right: false, jump: false, shoot: false };
+  const p = percepcion.player;
+  const b = percepcion.boss;
+  const dist = percepcion.distanciaAlJefe; // boss.x - player.x
+
+  // REGLA 1 (máxima prioridad): SI hay un proyectil enemigo cerca en X
+  // y a la altura del jugador ENTONCES saltar para esquivarlo.
+  const proyectilCercano = percepcion.proyectiles.find(pr =>
+    Math.abs(pr.x - p.x) < 95 && Math.abs(pr.y - (p.y + PLAYER_H)) < 55
+  );
+  if (proyectilCercano && p.onGround) {
+    accion.jump = true;
+    return accion;
+  }
+
+  // REGLA 2: SI el jefe está anunciando (telegraph) una embestida (dash)
+  // ENTONCES alejarse en la dirección opuesta al jefe (crear distancia
+  // ANTES de que el dash arranque, mientras todavía es posible hacerlo).
+  if (b.attackState === 'telegraph' && b.attackType === 'dash') {
+    if (dist > 0) accion.left = true; else accion.right = true;
+    return accion;
+  }
+
+  // REGLA 2.5 (corrige el "no hace nada" durante el dash): SI el jefe YA
+  // está EJECUTANDO la embestida (no sólo avisándola) y está lo bastante
+  // cerca como para golpear, ENTONCES saltar por encima. Es necesaria
+  // porque el jugador no puede alejarse corriendo más rápido que el dash
+  // (BOSS_DASH_SPEED > MOVE_SPEED): la única esquiva posible una vez que
+  // el dash ya arrancó es saltar por arriba del jefe.
+  if (b.attackState === 'attack' && b.attackType === 'dash' && Math.abs(dist) < 150 && p.onGround) {
+    accion.jump = true;
+    return accion;
+  }
+
+  // REGLA 3: SI el jefe está anunciando un disparo ENTONCES quedarse quieto
+  // y listo para saltar (la esquiva real ocurrirá vía Regla 1 cuando el
+  // proyectil exista y esté cerca).
+  if (b.attackState === 'telegraph' && b.attackType === 'proj') {
+    return accion; // no-op deliberado
+  }
+
+  // REGLA 4: SI la distancia horizontal al jefe es mayor al rango ideal de
+  // disparo ENTONCES avanzar hacia el jefe.
+  const distAbs = Math.abs(dist);
+  if (distAbs > 230) {
+    if (dist > 0) accion.right = true; else accion.left = true;
+    return accion;
+  }
+
+  // REGLA 5: SI está demasiado cerca del jefe (riesgo de choque cuerpo a
+  // cuerpo) ENTONCES retroceder mientras dispara.
+  if (distAbs < 85) {
+    if (dist > 0) accion.left = true; else accion.right = true;
+    accion.shoot = true;
+    return accion;
+  }
+
+  // REGLA 6 (por defecto): rango adecuado y sin amenaza inmediata visible
+  // ENTONCES disparar.
+  accion.shoot = true;
+  if (dist > 0 && p.facing === -1) accion.right = true; // Si el jefe está a la derecha y miro a la izq, volteo
+  if (dist < 0 && p.facing === 1) accion.left = true;   // Si el jefe está a la izquierda y miro a la der, volteo
+  return accion;
+}
+
+/* ---------- 3.2 AGENTE BASADO EN MODELO -------------------------
+   Mantiene un estado interno que registra:
+     - dirección/velocidad previa del jefe (para estimar su movimiento)
+     - velocidad estimada de los proyectiles (comparando con el frame
+       anterior) para predecir su posición futura
+     - historial de tipos de ataque del jefe, para detectar el patrón
+       de alternancia y PREDECIR el próximo ataque antes de que el
+       jefe lo anuncie (telegraph)
+   Con ese modelo, decide con anticipación en vez de reaccionar sólo
+   al instante actual. */
+function agenteModelo(percepcion, estadoInterno) {
+  const p = percepcion.player;
+  const b = percepcion.boss;
+  const dist = percepcion.distanciaAlJefe;
+
+  // --- Inicialización del estado interno (primera llamada) ---
+  let estado = estadoInterno || {
+    bossXAnterior: b.x,
+    bossVX: 0,
+    proyectilesAnteriores: [],
+    historialAtaques: [],
+    ultimoAttackState: 'idle',
+    prediccionProximoAtaque: null
+  };
+
+  // --- 1) ACTUALIZAR MODELO: velocidad estimada del jefe ---
+  const bossVX = b.x - estado.bossXAnterior;
+
+  // --- 2) ACTUALIZAR MODELO: emparejar proyectiles con el frame previo
+  //        (por índice/orden) para estimar su velocidad real ---
+  const proyectilesConVelocidad = percepcion.proyectiles.map((pr, i) => {
+    const anterior = estado.proyectilesAnteriores[i];
+    const vx = anterior ? (pr.x - anterior.x) : (dist > 0 ? -BOSS_PROJECTILE_SPEED : BOSS_PROJECTILE_SPEED);
+    const vy = anterior ? (pr.y - anterior.y) : 0;
+    return { x: pr.x, y: pr.y, vx, vy };
+  });
+
+  // --- 3) ACTUALIZAR MODELO: registrar en el historial cuando el jefe
+  //        pasa a ejecutar un ataque (transición idle/telegraph -> attack) ---
+  if (b.attackState === 'attack' && estado.ultimoAttackState !== 'attack') {
+    estado.historialAtaques = estado.historialAtaques.concat([b.attackType]).slice(-6);
+  }
+
+  // --- 4) PREDICCIÓN: el jefe alterna proyectil/embestida, así que con al
+  //        menos un ataque registrado podemos predecir el siguiente ---
+  let prediccion = null;
+  const hist = estado.historialAtaques;
+  if (hist.length >= 1) {
+    const ultimo = hist[hist.length - 1];
+    prediccion = (ultimo === 'proj') ? 'dash' : 'proj';
+  }
+
+  const accion = { left: false, right: false, jump: false, shoot: false };
+  const NFRAMES = 14; // horizonte de predicción (frames hacia el futuro)
+
+  // R1 (predictiva): proyectar la posición futura de cada proyectil usando
+  // la velocidad estimada; si intersectará al jugador, esquivar YA, antes
+  // de que esté realmente cerca (ventaja frente al reflejo).
+  const amenazaFutura = proyectilesConVelocidad.find(pr => {
+    const futuroX = pr.x + pr.vx * NFRAMES;
+    return Math.abs(futuroX - p.x) < 60 && Math.abs(pr.y - (p.y + PLAYER_H)) < 60;
+  });
+  if (amenazaFutura && p.onGround) {
+    accion.jump = true;
+    return finalizarAgenteModelo(estado, b, bossVX, percepcion, prediccion, accion);
+  }
+
+  // R2 (predictiva, usa el PATRÓN): si el jefe está en calma (idle) y el
+  // modelo predice que el próximo ataque será una embestida, aumentar la
+  // distancia de seguridad de antemano, antes de que aparezca cualquier
+  // telegraph.
+  if (b.attackState === 'idle' && prediccion === 'dash' && Math.abs(dist) < 260) {
+    if (dist > 0) accion.left = true; else accion.right = true;
+    return finalizarAgenteModelo(estado, b, bossVX, percepcion, prediccion, accion);
+  }
+
+  // R3: telegraph de embestida confirmado -> alejarse de inmediato,
+  // mientras todavía hay tiempo de crear distancia antes del impacto.
+  if (b.attackState === 'telegraph' && b.attackType === 'dash') {
+    if (dist > 0) accion.left = true; else accion.right = true;
+    return finalizarAgenteModelo(estado, b, bossVX, percepcion, prediccion, accion);
+  }
+
+  // R3.5 (corrige el "no hace nada" durante el dash): el jefe ya está
+  // EJECUTANDO la embestida (no sólo el aviso) y está cerca -> saltar por
+  // encima. Igual que en el agente reflejo, es la única esquiva viable una
+  // vez que el dash arrancó, porque el jefe corre más rápido que el
+  // jugador y alejarse caminando ya no alcanza.
+  if (b.attackState === 'attack' && b.attackType === 'dash' && Math.abs(dist) < 150 && p.onGround) {
+    accion.jump = true;
+    return finalizarAgenteModelo(estado, b, bossVX, percepcion, prediccion, accion);
+  }
+
+  // R4 (predictiva): si está en calma y se predice ataque de proyectil,
+  // aprovechar para acercarse un poco y ganar rango de contraataque, ya
+  // que ese ataque se esquiva fácilmente con un salto reactivo.
+  if (b.attackState === 'idle' && prediccion === 'proj' && Math.abs(dist) > 180) {
+    if (dist > 0) accion.right = true; else accion.left = true;
+    accion.shoot = true;
+    return finalizarAgenteModelo(estado, b, bossVX, percepcion, prediccion, accion);
+  }
+
+  // R5: mantener rango ideal usando la posición futura estimada del jefe
+  // (si se está moviendo) en vez de sólo su posición actual.
+  const bossXFuturo = b.x + bossVX * NFRAMES;
+  const distFutura = bossXFuturo - p.x;
+  const distAbs = Math.abs(distFutura);
+
+  if (distAbs > 220) {
+    if (distFutura > 0) accion.right = true; else accion.left = true;
+    return finalizarAgenteModelo(estado, b, bossVX, percepcion, prediccion, accion);
+  }
+  if (distAbs < 85) {
+    if (distFutura > 0) accion.left = true; else accion.right = true;
+    accion.shoot = true;
+    return finalizarAgenteModelo(estado, b, bossVX, percepcion, prediccion, accion);
+  }
+
+  // R6 (por defecto): rango adecuado, sin amenaza detectada ni predicha.
+  accion.shoot = true;
+  if (dist > 0 && p.facing === -1) accion.right = true;
+  if (dist < 0 && p.facing === 1) accion.left = true;
+  return finalizarAgenteModelo(estado, b, bossVX, percepcion, prediccion, accion);
+}
+
+// Guarda el nuevo estado interno del agente basado en modelo (helper interno,
+// separado para no repetir código en cada rama de decisión).
+function finalizarAgenteModelo(estado, b, bossVX, percepcion, prediccion, accion) {
+  const nuevoEstado = {
+    bossXAnterior: b.x,
+    bossVX: bossVX,
+    proyectilesAnteriores: percepcion.proyectiles.map(pr => ({ x: pr.x, y: pr.y })),
+    historialAtaques: estado.historialAtaques,
+    ultimoAttackState: b.attackState,
+    prediccionProximoAtaque: prediccion
+  };
+  return { accion, nuevoEstado };
+}
+
+/* ============================================================
+   3.5) SONIDO — sintetizado en tiempo real con Web Audio API.
+   No se usa ningún archivo de audio ni muestra de terceros: cada
+   efecto se genera por código (osciladores y ruido blanco filtrado),
+   por lo que no hay riesgo de derechos de autor.
+   ============================================================ */
+let audioCtxRef = null;
+let simulandoLote = false; // se pone en true durante las 20 partidas aceleradas para no reproducir cientos de sonidos de golpe
+
+function obtenerAudioCtx() {
+  if (!audioCtxRef) {
+    const ClaseAudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!ClaseAudioContext) return null;
+    audioCtxRef = new ClaseAudioContext();
+  }
+  if (audioCtxRef.state === 'suspended') audioCtxRef.resume();
+  return audioCtxRef;
+}
+
+// Tono con barrido de frecuencia (oscilador simple, forma de onda retro)
+function reproducirTono(freqInicial, freqFinal, duracion, tipoOnda, volumen) {
+  if (simulandoLote) return;
+  try {
+    const ac = obtenerAudioCtx();
+    if (!ac) return;
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.type = tipoOnda;
+    osc.frequency.setValueAtTime(freqInicial, ac.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(freqFinal, 20), ac.currentTime + duracion);
+    gain.gain.setValueAtTime(volumen, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + duracion);
+    osc.connect(gain).connect(ac.destination);
+    osc.start();
+    osc.stop(ac.currentTime + duracion);
+  } catch (e) { /* Web Audio no disponible: se ignora silenciosamente */ }
+}
+
+// Golpe percusivo hecho con ruido blanco filtrado (para el aterrizaje y la
+// embestida del jefe). frecuenciaFiltro más baja = sonido más grave/pesado.
+function reproducirGolpe(duracion, volumen, frecuenciaFiltro) {
+  if (simulandoLote) return;
+  try {
+    const ac = obtenerAudioCtx();
+    if (!ac) return;
+    const muestras = Math.floor(ac.sampleRate * duracion);
+    const buffer = ac.createBuffer(1, muestras, ac.sampleRate);
+    const datos = buffer.getChannelData(0);
+    for (let i = 0; i < muestras; i++) datos[i] = (Math.random() * 2 - 1) * (1 - i / muestras);
+    const fuente = ac.createBufferSource();
+    fuente.buffer = buffer;
+    const filtro = ac.createBiquadFilter();
+    filtro.type = 'lowpass';
+    filtro.frequency.value = frecuenciaFiltro || 450;
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(volumen, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + duracion);
+    fuente.connect(filtro).connect(gain).connect(ac.destination);
+    fuente.start();
+  } catch (e) { /* Web Audio no disponible: se ignora silenciosamente */ }
+}
+
+function sonidoSalto() { reproducirTono(300, 680, 0.13, 'square', 0.12); }
+function sonidoAterrizaje() { reproducirGolpe(0.09, 0.16, 450); }
+function sonidoDisparo() { reproducirTono(950, 180, 0.08, 'sawtooth', 0.08); }
+function sonidoInicio() {
+  // Pequeño arpegio ascendente genérico (notas sueltas, sin melodía protegida)
+  const notas = [523, 659, 784, 1047];
+  notas.forEach((freq, i) => {
+    setTimeout(() => reproducirTono(freq, freq, 0.1, 'square', 0.1), i * 90);
+  });
+}
+
+// --- Sonidos de ataque del JEFE ---
+// Diferenciados a propósito del jugador: timbre más grave/robusto (onda
+// cuadrada y ruido filtrado en vez del "pew" agudo del disparo del jugador)
+// y ~20% más largos en duración. El volumen se mantiene igual o por debajo
+// del equivalente del jugador, nunca por encima.
+function sonidoAtaqueJefeProyectil() {
+  // Contraparte del disparo del jugador (0.08s, volumen 0.08) -> 20% más
+  // largo (0.096s) y con menos volumen, timbre grave y "cuadrado".
+  reproducirTono(360, 85, 0.096, 'square', 0.07);
+}
+function sonidoAtaqueJefeDash() {
+  // Contraparte del golpe de aterrizaje (0.09s, volumen 0.16) -> 20% más
+  // largo (0.108s), mismo volumen máximo, pero filtro más grave para que
+  // suene más pesado/mecánico.
+  reproducirGolpe(0.108, 0.16, 180);
+}
+
+/* ------------------------- 4) RENDERIZADO -------------------------------- */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+function dibujarFondo() {
+  ctx.fillStyle = '#05070d';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+  // líneas de grilla retro-futurista
+  ctx.strokeStyle = 'rgba(63,214,255,0.08)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < CANVAS_W; x += 32) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, GROUND_Y); ctx.stroke();
+  }
+  for (let y = 0; y < GROUND_Y; y += 32) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(CANVAS_W, y); ctx.stroke();
+  }
+  // suelo
+  ctx.fillStyle = '#1b2440';
+  ctx.fillRect(0, GROUND_Y, CANVAS_W, CANVAS_H - GROUND_Y);
+  ctx.fillStyle = '#3fd6ff';
+  ctx.fillRect(0, GROUND_Y, CANVAS_W, 3);
+}
+
+// Dibuja al jugador como una figura humanoide simple (cabeza, torso, brazos,
+// piernas) dentro de la misma caja de colisión PLAYER_W x PLAYER_H, con
+// animación de piernas al caminar y una pose distinta en el aire.
+function dibujarJugador(state) {
+  const p = state.player;
+  const cx = p.x + PLAYER_W / 2; // centro horizontal
+  const top = p.y;
+  const piesY = p.y + PLAYER_H; // punto de anclaje para el squash/stretch
+
+  ctx.save();
+  if (p.invuln > 0 && Math.floor(p.invuln / 8) % 2 === 0) ctx.globalAlpha = 0.1;
+
+  // Aplica el estiramiento/aplastamiento anclado en los pies, para que el
+  // personaje parezca despegar y aterrizar desde el mismo punto de apoyo.
+  ctx.translate(cx, piesY);
+  ctx.scale(p.scaleX || 1, p.scaleY || 1);
+  ctx.translate(-cx, -piesY);
+
+  const colorArmadura = '#4fc3ff';
+  const colorCasco = '#bdeeff';
+  const colorDetalle = '#1c6f99';
+
+  // Piernas
+  const hipY = top + 22;
+  const feetY = top + PLAYER_H;
+  ctx.strokeStyle = colorArmadura;
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  if (!p.onGround) {
+    // pose de salto: piernas flexionadas hacia atrás/adelante
+    ctx.beginPath();
+    ctx.moveTo(cx - 3, hipY); ctx.lineTo(cx - 8, feetY - 4);
+    ctx.moveTo(cx + 3, hipY); ctx.lineTo(cx + 7, feetY - 8);
+    ctx.stroke();
+  } else if (Math.abs(p.vx) > 0.1) {
+    // tijereteo de piernas al caminar
+    const swing = Math.sin(p.walkPhase) * 7;
+    ctx.beginPath();
+    ctx.moveTo(cx - 3, hipY); ctx.lineTo(cx - 3 + swing, feetY);
+    ctx.moveTo(cx + 3, hipY); ctx.lineTo(cx + 3 - swing, feetY);
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(cx - 3, hipY); ctx.lineTo(cx - 4, feetY);
+    ctx.moveTo(cx + 3, hipY); ctx.lineTo(cx + 4, feetY);
+    ctx.stroke();
+  }
+
+  // Torso
+  ctx.fillStyle = colorArmadura;
+  ctx.fillRect(cx - 7, top + 12, 14, 14);
+  ctx.fillStyle = colorDetalle;
+  ctx.fillRect(cx - 7, top + 17, 14, 3);
+
+  // Brazo trasero
+  ctx.strokeStyle = colorArmadura;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(cx - p.facing * 5, top + 15);
+  ctx.lineTo(cx - p.facing * 9, top + 24);
+  ctx.stroke();
+
+  // Cabeza / casco
+  ctx.fillStyle = colorCasco;
+  ctx.beginPath();
+  ctx.arc(cx, top + 7, 7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = colorDetalle;
+  ctx.fillRect(cx - 5, top + 5, 10, 3); // visor
+
+  // Brazo delantero + cañón, en la dirección hacia la que mira
+  const gx = cx + p.facing * 8;
+  ctx.strokeStyle = colorArmadura;
+  ctx.beginPath();
+  ctx.moveTo(cx + p.facing * 5, top + 15);
+  ctx.lineTo(gx, top + 18);
+  ctx.stroke();
+  ctx.fillStyle = '#e8fbff';
+  ctx.fillRect(p.facing > 0 ? gx : gx - 7, top + 15, 7, 5);
+
+  ctx.restore();
+}
+
+// Dibuja al jefe como una figura humanoide robusta (más ancha de hombros que
+// el jugador), manteniendo la caja de colisión BOSS_W x BOSS_H. El color
+// cambia según el estado de ataque (aviso/telegraph, ejecución).
+function dibujarJefe(state) {
+  const b = state.boss;
+  const cx = b.x + BOSS_W / 2;
+  const top = b.y;
+  const dashDir = b.dashDir || 1;
+
+  let color = '#c93fff';
+  if (b.state === 'telegraph') {
+    color = (b.attackType === 'dash') ? '#ff4d4d' : '#ffd166';
+    if (Math.floor(state.frame / 4) % 2 === 0) color = '#ffffff';
+  } else if (b.state === 'attack') {
+    color = (b.attackType === 'dash') ? '#ff2f2f' : '#ff9d2f';
+  }
+  const colorDetalle = '#3a1050';
+
+  // Piernas
+  const hipY = top + 36;
+  const feetY = top + BOSS_H;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 9;
+  ctx.lineCap = 'round';
+  if (b.state === 'attack' && b.attackType === 'dash') {
+    // piernas en zancada amplia durante la embestida
+    ctx.beginPath();
+    ctx.moveTo(cx - 6, hipY); ctx.lineTo(cx - 6 - dashDir * 10, feetY);
+    ctx.moveTo(cx + 6, hipY); ctx.lineTo(cx + 6 + dashDir * 6, feetY);
+    ctx.stroke();
+  } else {
+    const swing = Math.sin(b.walkPhase || 0) * 5;
+    ctx.beginPath();
+    ctx.moveTo(cx - 7, hipY); ctx.lineTo(cx - 7 + swing, feetY);
+    ctx.moveTo(cx + 7, hipY); ctx.lineTo(cx + 7 - swing, feetY);
+    ctx.stroke();
+  }
+
+  // Torso ancho (hombros marcados)
+  ctx.fillStyle = color;
+  ctx.fillRect(cx - BOSS_W / 2 + 4, top + 18, BOSS_W - 8, 22);
+  ctx.fillStyle = colorDetalle;
+  ctx.fillRect(cx - BOSS_W / 2 + 4, top + 27, BOSS_W - 8, 4);
+
+  // Brazos: se extienden hacia el jugador al telegrafiar/atacar
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 7;
+  const brazoExtendido = b.state !== 'idle';
+  ctx.beginPath();
+  ctx.moveTo(cx - BOSS_W / 2 + 6, top + 22);
+  ctx.lineTo(cx - BOSS_W / 2 + (brazoExtendido ? -6 : 2), top + 30);
+  ctx.moveTo(cx + BOSS_W / 2 - 6, top + 22);
+  ctx.lineTo(cx + BOSS_W / 2 + (brazoExtendido ? 6 : -2), top + 30);
+  ctx.stroke();
+
+  // Cabeza / casco
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(cx, top + 11, 11, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = colorDetalle;
+  ctx.fillRect(cx - 10, top + 8, 20, 6); // visor / "ojo"
+}
+
+function dibujarProyectiles(state) {
+  state.projectiles.forEach(pr => {
+    ctx.fillStyle = pr.owner === 'player' ? '#8ff0ff' : '#ff8a3d';
+    ctx.beginPath();
+    ctx.ellipse(pr.x + pr.width / 2, pr.y + pr.height / 2, pr.width / 2, pr.height / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+// Dibuja las partículas de polvo generadas al despegar/aterrizar
+function dibujarParticulas(state) {
+  state.particulas.forEach(pt => {
+    ctx.globalAlpha = clamp(pt.vida / pt.vidaMax, 0, 1) * 0.7;
+    ctx.fillStyle = '#a9bfe8';
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, pt.radio, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+
+function dibujarHUD(state, modo) {
+  // barra de vida jugador
+  ctx.fillStyle = '#222';
+  ctx.fillRect(16, 14, 200, 14);
+  ctx.fillStyle = '#4fc3ff';
+  ctx.fillRect(16, 14, 200 * clamp(state.player.hp / PLAYER_MAX_HP, 0, 1), 14);
+  ctx.strokeStyle = '#8ff0ff'; ctx.strokeRect(16, 14, 200, 14);
+  ctx.fillStyle = '#d7e8ff'; ctx.font = '11px monospace';
+  ctx.fillText('X-HERO', 16, 12);
+
+  // barra de vida jefe
+  ctx.fillStyle = '#222';
+  ctx.fillRect(CANVAS_W - 216, 14, 200, 14);
+  ctx.fillStyle = '#ff5a5a';
+  ctx.fillRect(CANVAS_W - 216, 14, 200 * clamp(state.boss.hp / BOSS_MAX_HP, 0, 1), 14);
+  ctx.strokeStyle = '#ff9d9d'; ctx.strokeRect(CANVAS_W - 216, 14, 200, 14);
+  ctx.fillText('JEFE', CANVAS_W - 216, 12);
+
+  // score + modo
+  const scoreMostrado = Math.floor(state.score + state.frame / 6);
+  ctx.fillStyle = '#ffd166';
+  ctx.font = '14px monospace';
+  ctx.fillText('SCORE: ' + scoreMostrado, CANVAS_W / 2 - 60, 24);
+  ctx.fillStyle = '#8ff0c0'; ctx.font = '11px monospace';
+  ctx.fillText('MODO: ' + etiquetaModo(modo), CANVAS_W / 2 - 60, 40);
+}
+
+function etiquetaModo(m) {
+  return m === 'manual' ? 'MANUAL' : (m === 'reflejo' ? 'AGENTE REFLEJO' : 'AGENTE MODELO');
+}
+
+function dibujarPantallaInicio() {
+  dibujarFondo();
+  ctx.fillStyle = '#6ff2ff';
+  ctx.font = 'bold 34px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('M E G A - X', CANVAS_W / 2, 170);
+  ctx.font = '16px monospace';
+  ctx.fillStyle = '#d7e8ff';
+  ctx.fillText('DEMO DE ENFRENTAMIENTO CON JEFE', CANVAS_W / 2, 205);
+  ctx.font = '13px monospace';
+  ctx.fillStyle = '#8ff0c0';
+  ctx.fillText('Elegí el modo en el panel y presioná INICIAR / ENTER', CANVAS_W / 2, 260);
+  ctx.fillText('Flechas: moverse y saltar   ·   ESPACIO: disparar', CANVAS_W / 2, 285);
+  ctx.textAlign = 'left';
+}
+
+function dibujarPantallaFin(gano, state) {
+  dibujarFondo();
+  dibujarJugador(state);
+  dibujarJefe(state);
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 30px monospace';
+  ctx.fillStyle = gano ? '#8ff0c0' : '#ff5a5a';
+  ctx.fillText(gano ? '¡VICTORIA!' : 'GAME OVER', CANVAS_W / 2, 220);
+  ctx.font = '15px monospace';
+  ctx.fillStyle = '#ffd166';
+  const scoreMostrado = Math.floor(state.score + state.frame / 6 + (gano ? 100 : 0));
+  ctx.fillText('Puntaje final: ' + scoreMostrado, CANVAS_W / 2, 255);
+  ctx.fillStyle = '#d7e8ff'; ctx.font = '12px monospace';
+  ctx.fillText('Presioná ENTER o el botón INICIAR para volver a jugar', CANVAS_W / 2, 285);
+  ctx.textAlign = 'left';
+}
+
+function dibujar() {
+  if (pantalla === 'inicio') { dibujarPantallaInicio(); return; }
+  if (pantalla === 'victoria') { dibujarPantallaFin(true, estadoJuego); return; }
+  if (pantalla === 'derrota') { dibujarPantallaFin(false, estadoJuego); return; }
+  dibujarFondo();
+  dibujarParticulas(estadoJuego);
+  dibujarProyectiles(estadoJuego);
+  dibujarJugador(estadoJuego);
+  dibujarJefe(estadoJuego);
+  dibujarHUD(estadoJuego, modoActual);
+  if (pausado) {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 26px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('PAUSA', CANVAS_W / 2, CANVAS_H / 2);
+    ctx.textAlign = 'left';
+  }
+}
+
+/* ------------------- 5) BUCLE PRINCIPAL Y ENTRADA ------------------------ */
+let modoActual = 'manual';
+let estadoJuego = crearEstadoInicial();
+let estadoModeloEnVivo = null;
+let pausado = false;
+let pantalla = 'inicio'; // inicio | jugando | victoria | derrota
+const keys = new Set();
+
+const elModeSelect = document.getElementById('modeSelect');
+const elBtnStart = document.getElementById('btnStart');
+const elBtnPause = document.getElementById('btnPause');
+const elBtnBatch = document.getElementById('btnBatch');
+const elCajaPercepcion = document.getElementById('cajaPercepcion');
+const elEstadoPantalla = document.getElementById('estadoPantalla');
+const elResultsPanel = document.getElementById('resultsPanel');
+
+elModeSelect.addEventListener('change', () => {
+  modoActual = elModeSelect.value;
+  estadoModeloEnVivo = null;
+});
+
+elBtnStart.addEventListener('click', reiniciarPartida);
+elBtnPause.addEventListener('click', () => { pausado = !pausado; });
+elBtnBatch.addEventListener('click', ejecutarLotePartidas);
+
+window.addEventListener('keydown', (e) => {
+  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(e.key)) e.preventDefault();
+  keys.add(e.key);
+  if (e.key === 'Enter') reiniciarPartida();
+  if (e.key === 'Escape') pausado = !pausado;
+});
+window.addEventListener('keyup', (e) => keys.delete(e.key));
+
+function reiniciarPartida() {
+  estadoJuego = crearEstadoInicial();
+  estadoModeloEnVivo = null;
+  pausado = false;
+  pantalla = 'jugando';
+  sonidoInicio();
+}
+
+function actualizarPanelLateral(percepcion, estadoModelo, accion) {
+  elEstadoPantalla.textContent = 'Pantalla: ' + pantalla + ' · Modo: ' + etiquetaModo(modoActual);
+
+  const p = percepcion.player;
+  const b = percepcion.boss;
+  
+  // Función auxiliar para redondear números a 1 decimal
+  const r = (val) => Number(val).toFixed(1);
+
+  let html = `
+    <div class="hud-section">
+      <span class="hud-title">► JUGADOR</span>
+      <div class="hud-row"><span class="hud-label">Posición:</span> <span class="hud-value">X: ${r(p.x)} | Y: ${r(p.y)}</span></div>
+      <div class="hud-row"><span class="hud-label">Estado:</span> <span class="hud-value">HP: ${p.hp} | Suelo: ${p.onGround ? 'Sí' : 'No'}</span></div>
+    </div>
+
+    <div class="hud-section">
+      <span class="hud-title">► JEFE</span>
+      <div class="hud-row"><span class="hud-label">Posición:</span> <span class="hud-value">X: ${r(b.x)} | Y: ${r(b.y)}</span></div>
+      <div class="hud-row"><span class="hud-label">Estado:</span> <span class="hud-value">HP: ${b.hp} | FASE: ${b.attackState.toUpperCase()}</span></div>
+      <div class="hud-row"><span class="hud-label">Distancia:</span> <span class="hud-value">${Math.abs(r(percepcion.distanciaAlJefe))}px</span></div>
+    </div>
+  `;
+
+  if (modoActual === 'modelo' && estadoModelo) {
+    // Formateamos el historial para que se vea como [PROJ, DASH, PROJ]
+    const historialStr = estadoModelo.historialAtaques.length > 0 
+      ? estadoModelo.historialAtaques.map(a => a.toUpperCase()).join(', ') 
+      : 'VACÍO';
+
+    html += `
+    <div class="hud-section">
+      <span class="hud-title">► CEREBRO IA (MODELO)</span>
+      <div class="hud-row"><span class="hud-label">Velocidad Jefe (VX):</span> <span class="hud-value">${r(estadoModelo.bossVX)}</span></div>
+      <div class="hud-row"><span class="hud-label">Historial:</span> <span class="hud-value" style="font-size: 10px;">[${historialStr}]</span></div>
+      <div class="hud-row"><span class="hud-label">Predicción ataque:</span> <span class="hud-value" style="color:#ffd166;">${estadoModelo.prediccionProximoAtaque ? estadoModelo.prediccionProximoAtaque.toUpperCase() : 'NINGUNA'}</span></div>
+    </div>
+    `;
+  }
+
+  // Función auxiliar para dibujar los botones de acción iluminados
+  const actionBadge = (name, isActive) => 
+    `<span class="hud-action-badge ${isActive ? 'hud-action-active' : ''}">${name}</span>`;
+
+  html += `
+    <div class="hud-section">
+      <span class="hud-title">► ACCIÓN ELEGIDA</span>
+      <div style="margin-top: 8px;">
+        ${actionBadge('◀ IZQ', accion.left)}
+        ${actionBadge('DER ▶', accion.right)}
+        ${actionBadge('▲ SALTO', accion.jump)}
+        ${actionBadge('■ FUEGO', accion.shoot)}
+      </div>
+    </div>
+  `;
+
+  // ¡Nota que ahora usamos innerHTML en lugar de textContent!
+  elCajaPercepcion.innerHTML = html;
+}
+
+function loopPrincipal() {
+  if (!pausado && pantalla === 'jugando') {
+    const percepcion = getPerception(estadoJuego);
+    let accion;
+    if (modoActual === 'manual') {
+      accion = {
+        left: keys.has('ArrowLeft'),
+        right: keys.has('ArrowRight'),
+        jump: keys.has('ArrowUp'),
+        shoot: keys.has(' ')
+      };
+    } else if (modoActual === 'reflejo') {
+      accion = agenteReflejo(percepcion);
+    } else {
+      const r = agenteModelo(percepcion, estadoModeloEnVivo);
+      accion = r.accion;
+      estadoModeloEnVivo = r.nuevoEstado;
+    }
+    const resultado = stepGame(estadoJuego, accion);
+    actualizarPanelLateral(percepcion, estadoModeloEnVivo, accion);
+    if (resultado.ended) {
+      pantalla = resultado.won ? 'victoria' : 'derrota';
+    }
+  }
+  dibujar();
+  requestAnimationFrame(loopPrincipal);
+}
+requestAnimationFrame(loopPrincipal);
+
+/* ------------- 6) SIMULACIÓN POR LOTES (20 PARTIDAS) Y ESTADÍSTICAS ------ */
+
+// Corre una partida completa "a ciegas" (sin dibujar) usando el agente
+// indicado, hasta que termine o se alcance el tope de pasos.
+function simularUnaPartida(tipoAgente) {
+  let state = crearEstadoInicial();
+  let estadoModelo = null;
+  let ended = false, won = false;
+
+  while (!ended && state.frame < MAX_SIM_STEPS) {
+    const percepcion = getPerception(state);
+    let accion;
+    if (tipoAgente === 'reflejo') {
+      accion = agenteReflejo(percepcion);
+    } else {
+      const r = agenteModelo(percepcion, estadoModelo);
+      accion = r.accion;
+      estadoModelo = r.nuevoEstado;
+    }
+    const res = stepGame(state, accion);
+    ended = res.ended; won = res.won;
+  }
+
+  const survivalSeconds = state.frame / 60;
+  const scoreFinal = state.score + Math.floor(survivalSeconds * 10) + (won ? 100 : 0);
+  return { score: scoreFinal, survivalSeconds, won };
+}
+
+function media(arr) { return arr.reduce((a, b) => a + b, 0) / arr.length; }
+function desviacionEstandar(arr) {
+  const m = media(arr);
+  return Math.sqrt(media(arr.map(x => (x - m) * (x - m))));
+}
+
+function ejecutarLotePartidas() {
+  elResultsPanel.innerHTML = '<span class="subtexto">Ejecutando 40 partidas (20 x agente) a velocidad acelerada...</span>';
+  // pequeño timeout para permitir que el navegador pinte el mensaje antes de bloquear el hilo
+  setTimeout(() => {
+    simulandoLote = true; // evita que se disparen cientos de sonidos durante la simulación
+    const N = 20;
+    const resReflejo = [];
+    const resModelo = [];
+    for (let i = 0; i < N; i++) resReflejo.push(simularUnaPartida('reflejo'));
+    for (let i = 0; i < N; i++) resModelo.push(simularUnaPartida('modelo'));
+    simulandoLote = false;
+    mostrarResultadosLote(resReflejo, resModelo);
+  }, 30);
+}
+
+function mostrarResultadosLote(resReflejo, resModelo) {
+  const scoresR = resReflejo.map(r => r.score);
+  const scoresM = resModelo.map(r => r.score);
+  const survR = resReflejo.map(r => r.survivalSeconds);
+  const survM = resModelo.map(r => r.survivalSeconds);
+  const winsR = resReflejo.filter(r => r.won).length;
+  const winsM = resModelo.filter(r => r.won).length;
+
+  const fila = (nombre, scores, surv, wins) => `
+    <tr>
+      <td>${nombre}</td>
+      <td>${media(scores).toFixed(1)}</td>
+      <td>${desviacionEstandar(scores).toFixed(1)}</td>
+      <td>${media(surv).toFixed(1)}s</td>
+      <td>${wins}/20</td>
+    </tr>`;
+
+  elResultsPanel.innerHTML = `
+    <table>
+      <thead><tr><th>Agente</th><th>Puntaje prom.</th><th>Desv. est.</th><th>Sobrevive prom.</th><th>Victorias</th></tr></thead>
+      <tbody>
+        ${fila('Reflejo simple', scoresR, survR, winsR)}
+        ${fila('Basado en modelo', scoresM, survM, winsM)}
+      </tbody>
+    </table>
+    <div class="subtexto">20 partidas por agente, tope de 60s por partida. Desviación estándar poblacional.</div>
+  `;
+}
+</script>
+</body>
+</html>
