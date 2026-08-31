@@ -172,7 +172,16 @@
 
   <div id="panel">
     <h2>CONTROL</h2>
-    <label for="modeSelect">Modo de control</label>
+    <label for="gameModeSelect">Modo de juego</label>
+    <select id="gameModeSelect">
+      <option value="normal" selected>Normal</option>
+      <option value="oneshot">Oneshot (1 HP)</option>
+      <option value="waves">Oleadas (mín. 1 min, +jefes)</option>
+      <option value="survival">Supervivencia (Jefe Inmortal)</option>
+      <option value="corner">El Rincón</option>
+    </select>
+
+    <label for="modeSelect" style="margin-top:12px;">Modo de control</label>
     <select id="modeSelect">
       <option value="manual">Manual (teclado)</option>
       <option value="reflejo">1 · Agente de reflejo simple</option>
@@ -275,23 +284,39 @@ const RANGO_IDEAL_CENTRO = (RANGO_IDEAL_MIN + RANGO_IDEAL_MAX) / 2;
 
 /* ------------------------- 2) LÓGICA DEL JUEGO --------------------------- */
 
+function crearJefe(isCorner, isSurvival, waveIdx = 0, offsetX = 0) {
+  return {
+    x: isCorner ? 80 + offsetX : 480 + offsetX, 
+    y: GROUND_Y - BOSS_H, 
+    hp: isSurvival ? 999999 : BOSS_MAX_HP * (1 + waveIdx * 0.1),
+    state: isCorner ? 'telegraph' : 'idle', 
+    timer: isCorner ? DASH_DURATION : randInt(BOSS_IDLE_MIN, BOSS_IDLE_MAX),
+    attackType: isCorner ? 'dash' : null,
+    nextAttackType: Math.random() < 0.5 ? 'proj' : 'dash',
+    wanderDir: isCorner ? -1 : 1, 
+    dashDir: isCorner ? -1 : 1, 
+    walkPhase: 0,
+    vy: 0
+  };
+}
+
 function crearEstadoInicial() {
+  const isCorner = gameModeActual === 'corner';
+  const isSurvival = gameModeActual === 'survival';
+  const isOneshot = gameModeActual === 'oneshot';
+
   return {
     frame: 0,
     score: 0,
+    wave: 1,
+    timeAlive: 0,
     player: {
-      x: 80, y: GROUND_Y - PLAYER_H, vx: 0, vy: 0,
-      hp: PLAYER_MAX_HP, facing: 1, onGround: true,
+      x: isCorner ? 10 : 80, y: GROUND_Y - PLAYER_H, vx: 0, vy: 0,
+      hp: isOneshot ? 1 : PLAYER_MAX_HP, facing: 1, onGround: true,
       shootCooldown: 0, invuln: 0, walkPhase: 0,
       scaleX: 1, scaleY: 1
     },
-    boss: {
-      x: 480, y: GROUND_Y - BOSS_H, hp: BOSS_MAX_HP,
-      state: 'idle', timer: randInt(BOSS_IDLE_MIN, BOSS_IDLE_MAX),
-      attackType: null,
-      nextAttackType: Math.random() < 0.5 ? 'proj' : 'dash',
-      wanderDir: 1, dashDir: 1, walkPhase: 0
-    },
+    bosses: [ crearJefe(isCorner, isSurvival) ],
     particulas: [],
     projectiles: []
   };
@@ -299,105 +324,150 @@ function crearEstadoInicial() {
 
 // Construye el objeto de PERCEPCIÓN que reciben los cuatro agentes.
 function getPerception(state) {
-  const boss = state.boss;
+  const p = state.player;
+  const boss = state.bosses.reduce((closest, b) => {
+    if (!closest) return b;
+    return Math.abs(b.x - p.x) < Math.abs(closest.x - p.x) ? b : closest;
+  }, null);
+
   return {
     player: {
-      x: state.player.x, y: state.player.y,
-      vx: state.player.vx, vy: state.player.vy,
-      onGround: state.player.onGround, hp: state.player.hp, facing: state.player.facing,
-      shootCooldown: state.player.shootCooldown
+      x: p.x, y: p.y,
+      vx: p.vx, vy: p.vy,
+      onGround: p.onGround, hp: p.hp, facing: p.facing,
+      shootCooldown: p.shootCooldown
     },
     boss: {
-      x: boss.x, y: boss.y, hp: boss.hp,
-      attackState: boss.state,
-      attackType: (boss.state === 'telegraph' || boss.state === 'attack') ? boss.attackType : null
+      x: boss ? boss.x : 480, y: boss ? boss.y : GROUND_Y, hp: boss ? boss.hp : 0,
+      attackState: boss ? boss.state : 'idle',
+      attackType: boss ? ((boss.state === 'telegraph' || boss.state === 'attack') ? boss.attackType : null) : null
     },
+    bosses: state.bosses,
     proyectiles: state.projectiles
-      .filter(p => p.owner === 'boss' && !p.dead)
-      .map(p => ({ x: p.x, y: p.y, w: p.width, h: p.height })),
-    distanciaAlJefe: boss.x - state.player.x,
+      .filter(pr => (pr.owner === 'boss' || pr.type === 'shockwave') && !pr.dead)
+      .map(pr => ({ x: pr.x, y: pr.y, w: pr.width, h: pr.height })),
+    distanciaAlJefe: boss ? (boss.x - p.x) : 0,
     frame: state.frame
   };
 }
 
-function actualizarJefe(state) {
-  const boss = state.boss;
+function actualizarJefes(state) {
   const player = state.player;
-  boss.timer--;
-
-  switch (boss.state) {
-    case 'idle':
-      boss.x += boss.wanderDir * 1;
-      boss.walkPhase += 0.15;
-      if (boss.x < 380) boss.wanderDir = 1;
-      if (boss.x > 560) boss.wanderDir = -1;
-      if (boss.timer <= 0) {
-        boss.attackType = boss.nextAttackType;
-        boss.nextAttackType = (boss.attackType === 'proj') ? 'dash' : 'proj';
-        boss.state = 'telegraph';
-        boss.timer = TELEGRAPH_DURATION;
-      }
-      break;
-
-    case 'telegraph':
-      if (boss.timer <= 0) {
-        boss.state = 'attack';
-        if (boss.attackType === 'proj') {
-          boss.timer = 12;
-          const dir = player.x < boss.x ? -1 : 1;
-          state.projectiles.push({
-            x: boss.x, y: GROUND_Y - 16, vx: BOSS_PROJECTILE_SPEED * dir, vy: 0,
-            width: 12, height: 8, owner: 'boss', dead: false
-          });
-          sonidoAtaqueJefeProyectil();
-        } else {
-          boss.timer = DASH_DURATION;
-          boss.dashDir = player.x < boss.x ? -1 : 1;
-          sonidoAtaqueJefeDash();
+  state.bosses.forEach(boss => {
+    boss.timer--;
+    switch (boss.state) {
+      case 'idle':
+        boss.x += boss.wanderDir * 1;
+        boss.walkPhase += 0.15;
+        if (boss.x < 380) boss.wanderDir = 1;
+        if (boss.x > 560) boss.wanderDir = -1;
+        if (boss.timer <= 0) {
+          boss.attackType = boss.nextAttackType;
+          const ataques = ['proj', 'dash', 'jump_attack', 'spread_proj'];
+          boss.nextAttackType = ataques[randInt(0, 3)];
+          boss.state = 'telegraph';
+          boss.timer = TELEGRAPH_DURATION;
         }
-      }
-      break;
+        break;
 
-    case 'attack':
-      if (boss.attackType === 'dash') {
-        boss.x += boss.dashDir * BOSS_DASH_SPEED;
-        boss.x = clamp(boss.x, 10, CANVAS_W - 10 - BOSS_W);
-        boss.walkPhase += 0.6;
-      }
-      if (boss.timer <= 0) {
-        boss.state = 'idle';
-        boss.timer = randInt(BOSS_IDLE_MIN, BOSS_IDLE_MAX);
-      }
-      break;
-  }
+      case 'telegraph':
+        if (boss.timer <= 0) {
+          boss.state = 'attack';
+          if (boss.attackType === 'proj') {
+            boss.timer = 12;
+            const dir = player.x < boss.x ? -1 : 1;
+            state.projectiles.push({
+              x: boss.x, y: GROUND_Y - 16, vx: BOSS_PROJECTILE_SPEED * dir, vy: 0,
+              width: 12, height: 8, owner: 'boss', dead: false
+            });
+            sonidoAtaqueJefeProyectil();
+          } else if (boss.attackType === 'dash') {
+            boss.timer = DASH_DURATION;
+            boss.dashDir = player.x < boss.x ? -1 : 1;
+            sonidoAtaqueJefeDash();
+          } else if (boss.attackType === 'jump_attack') {
+            boss.timer = 100;
+            boss.vy = -6.5;
+            sonidoSalto();
+          } else if (boss.attackType === 'spread_proj') {
+            boss.timer = 12;
+            const dir = player.x < boss.x ? -1 : 1;
+            for(let i = -1; i <= 1; i++) {
+              state.projectiles.push({
+                x: boss.x, y: GROUND_Y - 30, vx: BOSS_PROJECTILE_SPEED * dir, vy: i * 1.5,
+                width: 12, height: 8, owner: 'boss', dead: false
+              });
+            }
+            sonidoAtaqueJefeRafaga();
+          }
+        }
+        break;
+
+      case 'attack':
+        if (boss.attackType === 'dash') {
+          boss.x += boss.dashDir * BOSS_DASH_SPEED;
+          boss.x = clamp(boss.x, 10, CANVAS_W - 10 - BOSS_W);
+          boss.walkPhase += 0.6;
+        } else if (boss.attackType === 'jump_attack') {
+          boss.y += boss.vy;
+          boss.vy += GRAVITY;
+          if (boss.y >= GROUND_Y - BOSS_H) {
+            boss.y = GROUND_Y - BOSS_H;
+            boss.timer = 0;
+            state.projectiles.push({ x: boss.x, y: GROUND_Y - 10, vx: -BOSS_DASH_SPEED * 0.8, vy: 0, width: 16, height: 10, owner: 'boss', type: 'shockwave', dead: false });
+            state.projectiles.push({ x: boss.x + BOSS_W, y: GROUND_Y - 10, vx: BOSS_DASH_SPEED * 0.8, vy: 0, width: 16, height: 10, owner: 'boss', type: 'shockwave', dead: false });
+            crearParticulasPolvo(state, boss.x + BOSS_W/2, GROUND_Y, 20);
+            sonidoAtaqueJefeSalto();
+          }
+        }
+        if (boss.timer <= 0) {
+          boss.state = 'idle';
+          boss.timer = randInt(BOSS_IDLE_MIN, BOSS_IDLE_MAX);
+        }
+        break;
+    }
+  });
 }
 
 function manejarColisiones(state) {
-  const player = state.player, boss = state.boss;
+  const player = state.player;
 
   state.projectiles.forEach(pr => {
     if (pr.dead) return;
-    if (pr.owner === 'player' &&
-        rectsOverlap(pr, { x: boss.x, y: boss.y, width: BOSS_W, height: BOSS_H })) {
-      boss.hp -= PLAYER_PROJECTILE_DAMAGE;
-      pr.dead = true;
-      state.score += 20;
+    if (pr.owner === 'player') {
+      state.bosses.forEach(boss => {
+        if (!pr.dead && rectsOverlap(pr, { x: boss.x, y: boss.y, width: BOSS_W, height: BOSS_H })) {
+          boss.hp -= PLAYER_PROJECTILE_DAMAGE;
+          pr.dead = true;
+          state.score += 20;
+        }
+      });
     }
     if (pr.owner === 'boss' && player.invuln <= 0 &&
         rectsOverlap(pr, { x: player.x, y: player.y, width: PLAYER_W, height: PLAYER_H })) {
-      player.hp -= BOSS_PROJECTILE_DAMAGE;
+      player.hp -= (pr.type === 'shockwave' ? BOSS_DASH_DAMAGE : BOSS_PROJECTILE_DAMAGE);
       pr.dead = true;
       player.invuln = 100;
+      if (pr.type === 'shockwave') player.vy = -3;
     }
   });
 
-  if (boss.state === 'attack' && boss.attackType === 'dash' && player.invuln <= 0 &&
-      rectsOverlap({ x: boss.x, y: boss.y, width: BOSS_W, height: BOSS_H },
-                    { x: player.x, y: player.y, width: PLAYER_W, height: PLAYER_H })) {
-    player.hp -= BOSS_DASH_DAMAGE;
-    player.invuln = 100;
-    player.x = clamp(player.x + boss.dashDir * 26, 10, CANVAS_W - 10 - PLAYER_W);
-  }
+  state.bosses.forEach(boss => {
+    if (boss.state === 'attack' && boss.attackType === 'dash' && player.invuln <= 0 &&
+        rectsOverlap({ x: boss.x, y: boss.y, width: BOSS_W, height: BOSS_H },
+                      { x: player.x, y: player.y, width: PLAYER_W, height: PLAYER_H })) {
+      player.hp -= BOSS_DASH_DAMAGE;
+      player.invuln = 100;
+      player.x = clamp(player.x + boss.dashDir * 26, 10, CANVAS_W - 10 - PLAYER_W);
+    }
+    if (boss.state === 'attack' && boss.attackType === 'jump_attack' && player.invuln <= 0 &&
+        rectsOverlap({ x: boss.x, y: boss.y, width: BOSS_W, height: BOSS_H },
+                      { x: player.x, y: player.y, width: PLAYER_W, height: PLAYER_H })) {
+      player.hp -= BOSS_DASH_DAMAGE * 1.5;
+      player.invuln = 100;
+      player.x = clamp(player.x + (player.x < boss.x ? -30 : 30), 10, CANVAS_W - 10 - PLAYER_W);
+    }
+  });
 }
 
 function crearParticulasPolvo(state, x, y, cantidad) {
@@ -485,7 +555,7 @@ function stepGame(state, action) {
   }
   if (player.invuln > 0) player.invuln--;
 
-  actualizarJefe(state);
+  actualizarJefes(state);
   actualizarParticulas(state);
 
   state.projectiles.forEach(pr => {
@@ -495,12 +565,24 @@ function stepGame(state, action) {
 
   manejarColisiones(state);
   state.projectiles = state.projectiles.filter(pr => !pr.dead);
+  
+  state.bosses = state.bosses.filter(b => b.hp > 0);
 
   state.frame++;
+  state.timeAlive++;
+
+  if (gameModeActual === 'waves' && state.bosses.length === 0) {
+    state.wave++;
+    for(let i=0; i<state.wave; i++) {
+        state.bosses.push(crearJefe(false, false, state.wave, i * 60));
+    }
+    state.score += 100;
+  }
 
   let ended = false, won = false;
   if (player.hp <= 0) { ended = true; won = false; }
-  else if (state.boss.hp <= 0) { ended = true; won = true; }
+  else if (state.bosses.length === 0 && gameModeActual !== 'waves' && gameModeActual !== 'survival') { ended = true; won = true; }
+  else if (gameModeActual === 'survival' && state.timeAlive >= MAX_SIM_STEPS && simulandoLote) { ended = true; won = true; }
   return { ended, won };
 }
 
@@ -939,6 +1021,14 @@ function sonidoAtaqueJefeProyectil() {
 function sonidoAtaqueJefeDash() {
   reproducirGolpe(0.108, 0.16, 180);
 }
+function sonidoAtaqueJefeRafaga() {
+  reproducirTono(420, 100, 0.1, 'sawtooth', 0.08);
+  setTimeout(() => reproducirTono(450, 120, 0.1, 'sawtooth', 0.08), 50);
+  setTimeout(() => reproducirTono(480, 140, 0.1, 'sawtooth', 0.08), 100);
+}
+function sonidoAtaqueJefeSalto() {
+  reproducirGolpe(0.2, 0.25, 300);
+}
 
 /* ------------------------- 4) RENDERIZADO -------------------------------- */
 const canvas = document.getElementById('gameCanvas');
@@ -1033,59 +1123,65 @@ function dibujarJugador(state) {
 }
 
 function dibujarJefe(state) {
-  const b = state.boss;
-  const cx = b.x + BOSS_W / 2;
-  const top = b.y;
-  const dashDir = b.dashDir || 1;
+  state.bosses.forEach(b => {
+    const cx = b.x + BOSS_W / 2;
+    const top = b.y;
+    const dashDir = b.dashDir || 1;
 
-  let color = '#c93fff';
-  if (b.state === 'telegraph') {
-    color = (b.attackType === 'dash') ? '#ff4d4d' : '#ffd166';
-    if (Math.floor(state.frame / 4) % 2 === 0) color = '#ffffff';
-  } else if (b.state === 'attack') {
-    color = (b.attackType === 'dash') ? '#ff2f2f' : '#ff9d2f';
-  }
-  const colorDetalle = '#3a1050';
+    let color = '#c93fff';
+    if (b.state === 'telegraph') {
+      color = (b.attackType === 'dash') ? '#ff4d4d' : (b.attackType === 'jump_attack' ? '#ff33aa' : '#ffd166');
+      if (Math.floor(state.frame / 4) % 2 === 0) color = '#ffffff';
+    } else if (b.state === 'attack') {
+      color = (b.attackType === 'dash') ? '#ff2f2f' : (b.attackType === 'jump_attack' ? '#ff1188' : '#ff9d2f');
+    }
+    const colorDetalle = '#3a1050';
 
-  const hipY = top + 36;
-  const feetY = top + BOSS_H;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 9;
-  ctx.lineCap = 'round';
-  if (b.state === 'attack' && b.attackType === 'dash') {
+    const hipY = top + 36;
+    const feetY = top + BOSS_H;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 9;
+    ctx.lineCap = 'round';
+    if (b.state === 'attack' && b.attackType === 'dash') {
+      ctx.beginPath();
+      ctx.moveTo(cx - 6, hipY); ctx.lineTo(cx - 6 - dashDir * 10, feetY);
+      ctx.moveTo(cx + 6, hipY); ctx.lineTo(cx + 6 + dashDir * 6, feetY);
+      ctx.stroke();
+    } else if (b.state === 'attack' && b.attackType === 'jump_attack') {
+      ctx.beginPath();
+      ctx.moveTo(cx - 10, hipY); ctx.lineTo(cx - 14, feetY - 5);
+      ctx.moveTo(cx + 10, hipY); ctx.lineTo(cx + 14, feetY - 5);
+      ctx.stroke();
+    } else {
+      const swing = Math.sin(b.walkPhase || 0) * 5;
+      ctx.beginPath();
+      ctx.moveTo(cx - 7, hipY); ctx.lineTo(cx - 7 + swing, feetY);
+      ctx.moveTo(cx + 7, hipY); ctx.lineTo(cx + 7 - swing, feetY);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = color;
+    ctx.fillRect(cx - BOSS_W / 2 + 4, top + 18, BOSS_W - 8, 22);
+    ctx.fillStyle = colorDetalle;
+    ctx.fillRect(cx - BOSS_W / 2 + 4, top + 27, BOSS_W - 8, 4);
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 7;
+    const brazoExtendido = b.state !== 'idle';
     ctx.beginPath();
-    ctx.moveTo(cx - 6, hipY); ctx.lineTo(cx - 6 - dashDir * 10, feetY);
-    ctx.moveTo(cx + 6, hipY); ctx.lineTo(cx + 6 + dashDir * 6, feetY);
+    ctx.moveTo(cx - BOSS_W / 2 + 6, top + 22);
+    ctx.lineTo(cx - BOSS_W / 2 + (brazoExtendido ? -6 : 2), top + 30);
+    ctx.moveTo(cx + BOSS_W / 2 - 6, top + 22);
+    ctx.lineTo(cx + BOSS_W / 2 + (brazoExtendido ? 6 : -2), top + 30);
     ctx.stroke();
-  } else {
-    const swing = Math.sin(b.walkPhase || 0) * 5;
+
+    ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.moveTo(cx - 7, hipY); ctx.lineTo(cx - 7 + swing, feetY);
-    ctx.moveTo(cx + 7, hipY); ctx.lineTo(cx + 7 - swing, feetY);
-    ctx.stroke();
-  }
-
-  ctx.fillStyle = color;
-  ctx.fillRect(cx - BOSS_W / 2 + 4, top + 18, BOSS_W - 8, 22);
-  ctx.fillStyle = colorDetalle;
-  ctx.fillRect(cx - BOSS_W / 2 + 4, top + 27, BOSS_W - 8, 4);
-
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 7;
-  const brazoExtendido = b.state !== 'idle';
-  ctx.beginPath();
-  ctx.moveTo(cx - BOSS_W / 2 + 6, top + 22);
-  ctx.lineTo(cx - BOSS_W / 2 + (brazoExtendido ? -6 : 2), top + 30);
-  ctx.moveTo(cx + BOSS_W / 2 - 6, top + 22);
-  ctx.lineTo(cx + BOSS_W / 2 + (brazoExtendido ? 6 : -2), top + 30);
-  ctx.stroke();
-
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.arc(cx, top + 11, 11, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = colorDetalle;
-  ctx.fillRect(cx - 10, top + 8, 20, 6);
+    ctx.arc(cx, top + 11, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = colorDetalle;
+    ctx.fillRect(cx - 10, top + 8, 20, 6);
+  });
 }
 
 function dibujarProyectiles(state) {
@@ -1119,10 +1215,13 @@ function dibujarHUD(state, modo) {
 
   ctx.fillStyle = '#222';
   ctx.fillRect(CANVAS_W - 216, 14, 200, 14);
+  const hpTotal = state.bosses.reduce((sum, b) => sum + b.hp, 0);
+  const maxHp = state.bosses.length * (gameModeActual === 'survival' ? 999999 : BOSS_MAX_HP * (1 + (state.wave - 1) * 0.1));
+  const hpRatio = maxHp > 0 ? clamp(hpTotal / maxHp, 0, 1) : 0;
   ctx.fillStyle = '#ff5a5a';
-  ctx.fillRect(CANVAS_W - 216, 14, 200 * clamp(state.boss.hp / BOSS_MAX_HP, 0, 1), 14);
+  ctx.fillRect(CANVAS_W - 216, 14, 200 * hpRatio, 14);
   ctx.strokeStyle = '#ff9d9d'; ctx.strokeRect(CANVAS_W - 216, 14, 200, 14);
-  ctx.fillText('JEFE', CANVAS_W - 216, 12);
+  ctx.fillText('JEFE' + (state.bosses.length > 1 ? 'S' : '') + (gameModeActual === 'waves' ? ` (OL ${state.wave})` : ''), CANVAS_W - 216, 12);
 
   const scoreMostrado = Math.floor(state.score + state.frame / 6);
   ctx.fillStyle = '#ffd166';
@@ -1196,7 +1295,8 @@ function dibujar() {
 
 /* ------------------- 5) BUCLE PRINCIPAL Y ENTRADA ------------------------ */
 let modoActual = 'utilidad';
-let estadoJuego = crearEstadoInicial();
+let gameModeActual = 'normal';
+let estadoJuego = null;
 let estadoModeloEnVivo = null;
 let estadoObjetivosEnVivo = null;
 let estadoUtilidadEnVivo = null;
@@ -1204,6 +1304,7 @@ let pausado = false;
 let pantalla = 'inicio';
 const keys = new Set();
 
+const elGameModeSelect = document.getElementById('gameModeSelect');
 const elModeSelect = document.getElementById('modeSelect');
 const elMedidaSelect = document.getElementById('medidaSelect');
 const elCajaPesos = document.getElementById('cajaPesos');
@@ -1237,6 +1338,11 @@ function recargarPesos() {
   pesosActuales = Object.assign({}, MEDIDAS[elMedidaSelect.value].pesos);
   construirPesos();
 }
+
+elGameModeSelect.addEventListener('change', () => {
+  gameModeActual = elGameModeSelect.value;
+  reiniciarPartida();
+});
 
 elModeSelect.addEventListener('change', () => {
   modoActual = elModeSelect.value;
@@ -1386,6 +1492,7 @@ function loopPrincipal() {
   requestAnimationFrame(loopPrincipal);
 }
 recargarPesos();
+estadoJuego = crearEstadoInicial();
 requestAnimationFrame(loopPrincipal);
 
 /* ------------- 6) SIMULACIÓN POR LOTES (20 x 4 AGENTES) Y ESTADÍSTICAS --- */
@@ -1465,7 +1572,7 @@ function mostrarResultadosLote(resultados) {
       <thead><tr><th>Agente</th><th>Puntaje prom.</th><th>Desv. est.</th><th>Sobrevive prom.</th><th>Victorias</th></tr></thead>
       <tbody>${resultados.map(r => fila(r.nombre, r.datos)).join('')}</tbody>
     </table>
-    <div class="subtexto">20 partidas por agente, tope de 60s por partida. El agente de utilidad usa los pesos actuales de los sliders. Desviación estándar poblacional.</div>
+    <div class="subtexto">20 partidas por agente. Modo evaluado: <b>${elGameModeSelect.options[elGameModeSelect.selectedIndex].text}</b>. El agente de utilidad usa los pesos de los sliders.</div>
   `;
 }
 </script>
